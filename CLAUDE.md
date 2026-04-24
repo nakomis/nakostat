@@ -18,6 +18,21 @@ Read these only when the conversation turns to that area:
 - Work on a feature branch, never directly on `main`.
 - When implementation is complete, create a GitHub PR.
 
+## Testing
+
+This project adopts a **test-first approach** wherever practical:
+
+- Write tests before or alongside implementation, not as an afterthought.
+- Every non-trivial function, module, or component should have unit tests.
+- Integration/component tests for interactions between subsystems.
+- Functional/end-to-end tests for user-visible behaviour.
+- CI enforces a minimum **70% code coverage** across each sub-project. Aim higher.
+- ESP32 firmware: use PlatformIO's `native` environment for host-side unit tests of logic that doesn't touch hardware registers directly.
+- Rust (Pi UI): `cargo test` + `cargo llvm-cov` for coverage.
+- CDK/Lambda (TypeScript): Jest tests for CDK constructs and Lambda handlers.
+- React (web): Vitest + React Testing Library for components; Playwright for functional tests.
+- PRs cannot be merged to `main` unless all CI checks pass. Admins may bypass in emergencies.
+
 ## Architecture overview
 
 ```

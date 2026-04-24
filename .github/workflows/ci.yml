@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  # ── Rust / Pi UI ─────────────────────────────────────────────────────────────
+  pi-ui:
+    name: Pi UI (Rust)
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' ||
+      contains(github.event.pull_request.changed_files_url, 'embedded/pi')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for Rust code
+        id: check
+        run: |
+          if [ -f embedded/pi/Cargo.toml ]; then
+            echo "has_code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Rust toolchain
+        if: steps.check.outputs.has_code == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        if: steps.check.outputs.has_code == 'true'
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Test + coverage
+        if: steps.check.outputs.has_code == 'true'
+        working-directory: embedded/pi
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+      - name: Check coverage threshold (70%)
+        if: steps.check.outputs.has_code == 'true'
+        working-directory: embedded/pi
+        run: |
+          cargo llvm-cov report --fail-under-lines 70
+
+      - name: Upload coverage report
+        if: steps.check.outputs.has_code == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi-coverage
+          path: embedded/pi/lcov.info
+
+  # ── TypeScript / CDK + Lambda ─────────────────────────────────────────────────
+  infra:
+    name: Infra (CDK / Lambda)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for TS code
+        id: check
+        run: |
+          if [ -f infra/package.json ]; then
+            echo "has_code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node
+        if: steps.check.outputs.has_code == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: infra/package-lock.json
+
+      - name: Install dependencies
+        if: steps.check.outputs.has_code == 'true'
+        working-directory: infra
+        run: npm ci
+
+      - name: Test + coverage
+        if: steps.check.outputs.has_code == 'true'
+        working-directory: infra
+        run: npm test -- --coverage --coverageThreshold='{"global":{"lines":70}}'
+
+  # ── React / Web dashboard ─────────────────────────────────────────────────────
+  web:
+    name: Web dashboard (React)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for web code
+        id: check
+        run: |
+          if [ -f web/package.json ]; then
+            echo "has_code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node
+        if: steps.check.outputs.has_code == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        if: steps.check.outputs.has_code == 'true'
+        working-directory: web
+        run: npm ci
+
+      - name: Unit + component tests with coverage
+        if: steps.check.outputs.has_code == 'true'
+        working-directory: web
+        run: npm test -- --coverage --coverageThreshold='{"global":{"lines":70}}'
+
+      - name: Playwright functional tests
+        if: steps.check.outputs.has_code == 'true'
+        working-directory: web
+        run: npx playwright test
+
+  # ── ESP32 firmware (PlatformIO native unit tests) ─────────────────────────────
+  esp32:
+    name: ESP32 firmware (native unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for firmware code
+        id: check
+        run: |
+          if [ -f embedded/esp32/platformio.ini ]; then
+            echo "has_code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Python
+        if: steps.check.outputs.has_code == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO
+        if: steps.check.outputs.has_code == 'true'
+        run: pip install platformio
+
+      - name: Run native unit tests
+        if: steps.check.outputs.has_code == 'true'
+        working-directory: embedded/esp32
+        run: pio test -e native
