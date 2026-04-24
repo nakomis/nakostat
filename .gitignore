@@ -1,0 +1,23 @@
+.DS_Store
+**/*.bkp
+PLAN.md
+
+# Embedded build artefacts
+embedded/**/.pio/
+embedded/**/target/
+embedded/**/*.bin
+embedded/**/*.elf
+
+# Node / CDK
+infra/node_modules/
+infra/cdk.out/
+infra/**/.env
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/.venv/
+
+# Secrets — never commit these
+**/secrets.json
+embedded/**/include/secrets.h
