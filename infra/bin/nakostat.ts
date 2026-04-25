@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
-import * as iam from 'aws-cdk-lib/aws-iam';
 import { IotStack } from '../lib/iot-stack';
 import { GithubCiStack } from '../lib/github-ci-stack';
 
@@ -39,21 +38,5 @@ new GithubCiStack(app, 'NakostatGithubCiStack', {
   ...londonEnv,
   deployEnv,
   githubOidcProviderArn,
-  roles: [
-    {
-      repo: 'nakomis/nakostat',
-      description: `Assumed by nakostat GitHub Actions CI for CDK deploy (${deployEnv})`,
-      inlinePolicies: {
-        CdkDeploy: new iam.PolicyDocument({
-          statements: [
-            new iam.PolicyStatement({
-              actions: ['sts:AssumeRole'],
-              resources: [`arn:aws:iam::${accountId}:role/cdk-hnb659fds-*`],
-            }),
-          ],
-        }),
-      },
-    },
-  ],
   description: `GitHub Actions OIDC role for nakostat CI (${deployEnv})`,
 });

@@ -1,5 +1,4 @@
 import * as cdk from 'aws-cdk-lib';
-import * as iam from 'aws-cdk-lib/aws-iam';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { GithubCiStack } from '../lib/github-ci-stack';
 
@@ -11,22 +10,6 @@ function makeStack(deployEnv: 'sandbox' | 'prod' = 'sandbox') {
     env: { account: '123456789012', region: 'eu-west-2' },
     deployEnv,
     githubOidcProviderArn: OIDC_ARN,
-    roles: [
-      {
-        repo: 'nakomis/nakostat',
-        description: `Assumed by nakostat CI (${deployEnv})`,
-        inlinePolicies: {
-          CdkDeploy: new iam.PolicyDocument({
-            statements: [
-              new iam.PolicyStatement({
-                actions: ['sts:AssumeRole'],
-                resources: ['arn:aws:iam::123456789012:role/cdk-hnb659fds-*'],
-              }),
-            ],
-          }),
-        },
-      },
-    ],
   });
   return Template.fromStack(stack);
 }
@@ -65,7 +48,7 @@ describe('GithubCiStack', () => {
     });
   });
 
-  test('role has CdkDeploy inline policy with sts:AssumeRole', () => {
+  test('role has CdkDeploy inline policy with sts:AssumeRole on CDK bootstrap roles', () => {
     sandboxTemplate.hasResourceProperties('AWS::IAM::Role', {
       Policies: Match.arrayWith([
         Match.objectLike({
@@ -74,7 +57,7 @@ describe('GithubCiStack', () => {
             Statement: Match.arrayWith([
               Match.objectLike({
                 Action: 'sts:AssumeRole',
-                Resource: 'arn:aws:iam::123456789012:role/cdk-hnb659fds-*',
+                Resource: Match.stringLikeRegexp('cdk-hnb659fds-\\*'),
               }),
             ]),
           },
@@ -84,7 +67,7 @@ describe('GithubCiStack', () => {
   });
 
   test('outputs role ARN', () => {
-    sandboxTemplate.hasOutput('nakomisnakostatRoleArn', {});
+    sandboxTemplate.hasOutput('NakostatCiRoleArn', {});
   });
 
   test('prod uses prod suffix in role name', () => {
