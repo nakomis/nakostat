@@ -21,3 +21,13 @@ infra/**/.env
 # Secrets — never commit these
 **/secrets.json
 embedded/**/include/secrets.h
+
+# superprivatesecretrepo symlink and generated secrets
+secrets
+superprivatesecretrepo/
+
+# CDK deploy output dir (used by CI to avoid conflicts)
+infra/cdk-deploy.out/
+
+# Test coverage output
+infra/coverage/
