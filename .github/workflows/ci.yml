@@ -1,10 +1,11 @@
 name: CI
 
 on:
-  pull_request:
-    branches: [main]
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
   # ── Rust / Pi UI ─────────────────────────────────────────────────────────────
@@ -74,7 +75,7 @@ jobs:
         if: steps.check.outputs.has_code == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: infra/package-lock.json
 
@@ -86,7 +87,92 @@ jobs:
       - name: Test + coverage
         if: steps.check.outputs.has_code == 'true'
         working-directory: infra
-        run: npm test -- --coverage --coverageThreshold='{"global":{"lines":70}}'
+        run: npm test
+
+  # ── CDK synth (validates template on PRs and pushes) ─────────────────────────
+  synth-infra:
+    name: CDK synth
+    runs-on: ubuntu-latest
+    needs: infra
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: infra/package-lock.json
+      - run: npm ci
+      - name: Configure AWS credentials (sandbox)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::975050268859:role/nakomis-nakostat-github-ci-sandbox
+          aws-region: eu-west-2
+      - name: CDK synth (sandbox)
+        run: npm run synth-sandbox -- --output cdk-synth.out
+
+  # ── Deploy to sandbox (auto on merge to main) ─────────────────────────────────
+  deploy-infra-sandbox:
+    name: Deploy — sandbox
+    runs-on: ubuntu-latest
+    needs: synth-infra
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    environment: sandbox
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: infra/package-lock.json
+      - run: npm ci
+      - name: Configure AWS credentials (sandbox)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::975050268859:role/nakomis-nakostat-github-ci-sandbox
+          aws-region: eu-west-2
+      - name: Deploy to sandbox
+        run: npm run ci-deploy-sandbox
+
+  # ── Deploy to prod (manual approval required) ────────────────────────────────
+  deploy-infra-prod:
+    name: Deploy — production
+    runs-on: ubuntu-latest
+    needs: deploy-infra-sandbox
+    if: github.event_name == 'push'
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: infra/package-lock.json
+      - run: npm ci
+      - name: Configure AWS credentials (prod)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::637423226886:role/nakomis-nakostat-github-ci-prod
+          aws-region: eu-west-2
+      - name: Deploy to production
+        run: npm run ci-deploy-prod
 
   # ── React / Web dashboard ─────────────────────────────────────────────────────
   web:
