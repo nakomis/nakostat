@@ -2,6 +2,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { IotStack } from '../lib/iot-stack';
 import { GithubCiStack } from '../lib/github-ci-stack';
+import { DynamoStack } from '../lib/dynamo-stack';
 
 const npmEnvironment = process.env.NPM_ENVIRONMENT;
 if (!npmEnvironment) {
@@ -32,6 +33,12 @@ new IotStack(app, 'NakostatIotStack', {
   ...londonEnv,
   deployEnv,
   description: `Nakostat IoT Things, certificates, and policies (${deployEnv})`,
+});
+
+new DynamoStack(app, 'NakostatDynamoStack', {
+  ...londonEnv,
+  deployEnv,
+  description: `Nakostat DynamoDB tables for sensor readings and device state (${deployEnv})`,
 });
 
 new GithubCiStack(app, 'NakostatGithubCiStack', {

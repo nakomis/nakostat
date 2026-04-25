@@ -7,6 +7,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Check out the post-merge state on PRs so CI validates what will land on main,
+# not just the branch tip. Falls back to the commit SHA on push/workflow_dispatch.
+env:
+  CHECKOUT_REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/merge', github.event.pull_request.number) || github.sha }}
+
 jobs:
   # ── Rust / Pi UI ─────────────────────────────────────────────────────────────
   pi-ui:
@@ -17,6 +22,8 @@ jobs:
       contains(github.event.pull_request.changed_files_url, 'embedded/pi')
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
 
       - name: Check for Rust code
         id: check
@@ -61,6 +68,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
 
       - name: Check for TS code
         id: check
@@ -102,6 +111,8 @@ jobs:
         working-directory: infra
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -131,6 +142,8 @@ jobs:
         working-directory: infra
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -160,6 +173,8 @@ jobs:
         working-directory: infra
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -180,6 +195,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
 
       - name: Check for web code
         id: check
@@ -219,6 +236,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
 
       - name: Check for firmware code
         id: check
