@@ -110,6 +110,13 @@ describe('WebStack — sandbox', () => {
     });
   });
 
+  test('creates One Dark managed login branding for nakostat client', () => {
+    template.hasResourceProperties('AWS::Cognito::ManagedLoginBranding', {
+      UseCognitoProvidedValues: false,
+      ClientId: Match.anyValue(),
+    });
+  });
+
   test('publishes client ID to SSM', () => {
     template.hasResourceProperties('AWS::SSM::Parameter', {
       Name: '/nakostat/sandbox/cognito/client-id',
