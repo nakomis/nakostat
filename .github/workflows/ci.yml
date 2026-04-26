@@ -84,7 +84,7 @@ jobs:
         if: steps.check.outputs.has_code == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '25'
           cache: 'npm'
           cache-dependency-path: infra/package-lock.json
 
@@ -115,7 +115,7 @@ jobs:
           ref: ${{ env.CHECKOUT_REF }}
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '25'
           cache: npm
           cache-dependency-path: infra/package-lock.json
       - run: npm ci
@@ -146,7 +146,7 @@ jobs:
           ref: ${{ env.CHECKOUT_REF }}
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '25'
           cache: npm
           cache-dependency-path: infra/package-lock.json
       - run: npm ci
@@ -177,7 +177,7 @@ jobs:
           ref: ${{ env.CHECKOUT_REF }}
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '25'
           cache: npm
           cache-dependency-path: infra/package-lock.json
       - run: npm ci
@@ -211,7 +211,7 @@ jobs:
         if: steps.check.outputs.has_code == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '25'
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
@@ -249,7 +249,7 @@ jobs:
           ref: ${{ env.CHECKOUT_REF }}
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '25'
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
@@ -292,7 +292,7 @@ jobs:
           ref: ${{ env.CHECKOUT_REF }}
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '25'
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
