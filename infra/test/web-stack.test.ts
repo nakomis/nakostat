@@ -124,6 +124,20 @@ describe('WebStack — sandbox', () => {
     });
   });
 
+  test('publishes user pool ID to SSM', () => {
+    template.hasResourceProperties('AWS::SSM::Parameter', {
+      Name: '/nakostat/sandbox/cognito/user-pool-id',
+      Type: 'String',
+    });
+  });
+
+  test('publishes login domain to SSM', () => {
+    template.hasResourceProperties('AWS::SSM::Parameter', {
+      Name: '/nakostat/sandbox/cognito/login-domain',
+      Type: 'String',
+    });
+  });
+
   test('publishes bucket name to SSM', () => {
     template.hasResourceProperties('AWS::SSM::Parameter', {
       Name: '/nakostat/sandbox/web/bucket-name',
