@@ -193,6 +193,9 @@ jobs:
   web:
     name: Web dashboard (React)
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -219,6 +222,26 @@ jobs:
         if: steps.check.outputs.has_code == 'true'
         working-directory: web
         run: npm ci
+
+      - name: Configure AWS credentials (sandbox)
+        if: steps.check.outputs.has_code == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::975050268859:role/nakomis-nakostat-github-ci-sandbox
+          aws-region: eu-west-2
+
+      - name: Verify set-config.sh (sandbox)
+        if: steps.check.outputs.has_code == 'true'
+        working-directory: web
+        run: |
+          # Skip if sandbox infra hasn't been deployed yet (bootstrapping a fresh account,
+          # or a PR that adds new SSM params before they've been deployed).
+          # The deploy pipeline guarantees deploy-infra-sandbox runs before deploy-web-sandbox.
+          if ! aws ssm get-parameter --name /nakostat/sandbox/cognito/user-pool-id > /dev/null 2>&1; then
+            echo "Skipping: sandbox infra not yet deployed — params will exist after first deploy"
+            exit 0
+          fi
+          bash scripts/set-config.sh sandbox
 
       - name: Unit + component tests with coverage
         if: steps.check.outputs.has_code == 'true'

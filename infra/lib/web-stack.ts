@@ -193,10 +193,26 @@ export class WebStack extends cdk.Stack {
       target: route53.RecordTarget.fromAlias(new route53Targets.CloudFrontTarget(this.distribution)),
     });
 
+    const loginDomain = ssm.StringParameter.valueForStringParameter(
+      this, `/nakomis-infra/${deployEnv}/cognito/login-domain`,
+    );
+
     new ssm.StringParameter(this, 'ClientIdParam', {
       parameterName: `/nakostat/${deployEnv}/cognito/client-id`,
       stringValue: client.userPoolClientId,
       description: `Nakostat Cognito app client ID (${deployEnv})`,
+    });
+
+    new ssm.StringParameter(this, 'UserPoolIdParam', {
+      parameterName: `/nakostat/${deployEnv}/cognito/user-pool-id`,
+      stringValue: userPoolId,
+      description: `Shared NakomisUserPool ID (${deployEnv})`,
+    });
+
+    new ssm.StringParameter(this, 'LoginDomainParam', {
+      parameterName: `/nakostat/${deployEnv}/cognito/login-domain`,
+      stringValue: loginDomain,
+      description: `Cognito login domain for nakostat (${deployEnv})`,
     });
 
     new ssm.StringParameter(this, 'BucketNameParam', {

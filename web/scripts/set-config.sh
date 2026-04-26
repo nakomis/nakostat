@@ -44,14 +44,14 @@ setValue env "$ENV"
 REGION="${AWS_DEFAULT_REGION:-${AWS_REGION:-$(aws configure get region)}}"
 setValue region "$REGION"
 
-USER_POOL_ID=$(aws ssm get-parameter --name "/nakomis-infra/${AWS_ENV}/cognito/user-pool-id" --query "Parameter.Value" --output text)
+USER_POOL_ID=$(aws ssm get-parameter --name "/nakostat/${AWS_ENV}/cognito/user-pool-id" --query "Parameter.Value" --output text)
 setValue authority "https://cognito-idp.eu-west-2.amazonaws.com/${USER_POOL_ID}"
 setValue userPoolId "$USER_POOL_ID"
 
 USER_POOL_CLIENT_ID=$(aws ssm get-parameter --name "/nakostat/${AWS_ENV}/cognito/client-id" --query "Parameter.Value" --output text)
 setValue userPoolClientId "$USER_POOL_CLIENT_ID"
 
-LOGIN_DOMAIN=$(aws ssm get-parameter --name "/nakomis-infra/${AWS_ENV}/cognito/login-domain" --query "Parameter.Value" --output text)
+LOGIN_DOMAIN=$(aws ssm get-parameter --name "/nakostat/${AWS_ENV}/cognito/login-domain" --query "Parameter.Value" --output text)
 setValue cognitoDomain "$LOGIN_DOMAIN"
 
 case $ENV in
