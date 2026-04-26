@@ -43,8 +43,8 @@ export class WebStack extends cdk.Stack {
       authFlows: { userSrp: true },
       generateSecret: false,
       oAuth: {
-        callbackUrls: [`https://${appDomain}`, 'http://localhost:5173'],
-        logoutUrls:   [`https://${appDomain}`, 'http://localhost:5173'],
+        callbackUrls: [`https://${appDomain}/loggedin`, 'http://localhost:3000/loggedin'],
+        logoutUrls:   [`https://${appDomain}/logout`,   'http://localhost:3000/logout'],
       },
     });
 
@@ -197,6 +197,18 @@ export class WebStack extends cdk.Stack {
       parameterName: `/nakostat/${deployEnv}/cognito/client-id`,
       stringValue: client.userPoolClientId,
       description: `Nakostat Cognito app client ID (${deployEnv})`,
+    });
+
+    new ssm.StringParameter(this, 'BucketNameParam', {
+      parameterName: `/nakostat/${deployEnv}/web/bucket-name`,
+      stringValue: this.bucket.bucketName,
+      description: `Nakostat web S3 bucket name (${deployEnv})`,
+    });
+
+    new ssm.StringParameter(this, 'DistributionIdParam', {
+      parameterName: `/nakostat/${deployEnv}/web/distribution-id`,
+      stringValue: this.distribution.distributionId,
+      description: `Nakostat CloudFront distribution ID (${deployEnv})`,
     });
 
     new cdk.CfnOutput(this, 'DistributionDomainName', {

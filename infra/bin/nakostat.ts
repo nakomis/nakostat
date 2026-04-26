@@ -44,13 +44,6 @@ new DynamoStack(app, 'NakostatDynamoStack', {
   description: `Nakostat DynamoDB tables for sensor readings and device state (${deployEnv})`,
 });
 
-new GithubCiStack(app, 'NakostatGithubCiStack', {
-  ...londonEnv,
-  deployEnv,
-  githubOidcProviderArn,
-  description: `GitHub Actions OIDC role for nakostat CI (${deployEnv})`,
-});
-
 const webCertStack = new WebCertStack(app, 'NakostatWebCertStack', {
   env: { account: accountId, region: 'us-east-1' },
   deployEnv,
@@ -58,12 +51,21 @@ const webCertStack = new WebCertStack(app, 'NakostatWebCertStack', {
   description: `ACM certificate for nakostat.${isProd ? 'nakomis.com' : 'sandbox.nakomis.com'} (must be in us-east-1 for CloudFront)`,
 });
 
-new WebStack(app, 'NakostatWebStack', {
+const webStack = new WebStack(app, 'NakostatWebStack', {
   ...londonEnv,
   deployEnv,
   certificate: webCertStack.certificate,
   crossRegionReferences: true,
   description: `CloudFront + S3 SPA hosting and Cognito client for nakostat (${deployEnv})`,
+});
+
+new GithubCiStack(app, 'NakostatGithubCiStack', {
+  ...londonEnv,
+  deployEnv,
+  githubOidcProviderArn,
+  webBucket: webStack.bucket,
+  webDistribution: webStack.distribution,
+  description: `GitHub Actions OIDC role for nakostat CI (${deployEnv})`,
 });
 
 const { version: infraVersion } = JSON.parse(fs.readFileSync('./version.json', 'utf-8'));

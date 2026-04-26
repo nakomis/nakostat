@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# Populates src/config/config.json from AWS SSM before build.
+# Usage: set-config.sh [sandbox|prod|localhost]
+
+PARAM=$1
+ENV="${PARAM:=sandbox}"
+
+if [[ $ENV == "localhost" ]]; then
+  export AWS_ENV=sandbox
+else
+  export AWS_ENV=$ENV
+fi
+
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+export AWS_PROFILE=nakom.is-$AWS_ENV
+
+CONFIG_FILE="$SCRIPT_DIR/../src/config/config.json"
+
+function setValue() {
+  local key="$1"
+  local value="$2"
+  echo "Setting $key to $value"
+  local tmp
+  tmp=$(mktemp)
+  sed "s|\"$key\": \".*\"|\"$key\": \"$value\"|g" "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+}
+
+cp "$SCRIPT_DIR/../src/config/config.json.template" "$CONFIG_FILE"
+
+setValue env "$ENV"
+setValue region "$(aws configure get region)"
+
+USER_POOL_ID=$(aws ssm get-parameter --name "/nakomis-infra/${AWS_ENV}/cognito/user-pool-id" --query "Parameter.Value" --output text)
+setValue authority "https://cognito-idp.eu-west-2.amazonaws.com/${USER_POOL_ID}"
+setValue userPoolId "$USER_POOL_ID"
+
+USER_POOL_CLIENT_ID=$(aws ssm get-parameter --name "/nakostat/${AWS_ENV}/cognito/client-id" --query "Parameter.Value" --output text)
+setValue userPoolClientId "$USER_POOL_CLIENT_ID"
+
+LOGIN_DOMAIN=$(aws ssm get-parameter --name "/nakomis-infra/${AWS_ENV}/cognito/login-domain" --query "Parameter.Value" --output text)
+setValue cognitoDomain "$LOGIN_DOMAIN"
+
+case $ENV in
+  prod)
+    setValue redirectUri "https://nakostat.nakomis.com/loggedin"
+    setValue logoutUri "https://nakostat.nakomis.com/logout"
+    ;;
+  sandbox)
+    setValue redirectUri "https://nakostat.sandbox.nakomis.com/loggedin"
+    setValue logoutUri "https://nakostat.sandbox.nakomis.com/logout"
+    ;;
+  localhost)
+    setValue redirectUri "http://localhost:3000/loggedin"
+    setValue logoutUri "http://localhost:3000/logout"
+    ;;
+  *)
+    echo "Unknown environment: $ENV"
+    exit 1
+    ;;
+esac
