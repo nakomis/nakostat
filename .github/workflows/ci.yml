@@ -193,6 +193,9 @@ jobs:
   web:
     name: Web dashboard (React)
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -219,6 +222,18 @@ jobs:
         if: steps.check.outputs.has_code == 'true'
         working-directory: web
         run: npm ci
+
+      - name: Configure AWS credentials (sandbox)
+        if: steps.check.outputs.has_code == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::975050268859:role/nakomis-nakostat-github-ci-sandbox
+          aws-region: eu-west-2
+
+      - name: Verify set-config.sh (sandbox)
+        if: steps.check.outputs.has_code == 'true'
+        working-directory: web
+        run: bash scripts/set-config.sh sandbox
 
       - name: Unit + component tests with coverage
         if: steps.check.outputs.has_code == 'true'
