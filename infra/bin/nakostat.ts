@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import { IotStack } from '../lib/iot-stack';
 import { GithubCiStack } from '../lib/github-ci-stack';
 import { DynamoStack } from '../lib/dynamo-stack';
+import { WebCertStack } from '../lib/web-cert-stack';
+import { WebStack } from '../lib/web-stack';
 
 const npmEnvironment = process.env.NPM_ENVIRONMENT;
 if (!npmEnvironment) {
@@ -47,6 +49,21 @@ new GithubCiStack(app, 'NakostatGithubCiStack', {
   deployEnv,
   githubOidcProviderArn,
   description: `GitHub Actions OIDC role for nakostat CI (${deployEnv})`,
+});
+
+const webCertStack = new WebCertStack(app, 'NakostatWebCertStack', {
+  env: { account: accountId, region: 'us-east-1' },
+  deployEnv,
+  crossRegionReferences: true,
+  description: `ACM certificate for nakostat.${isProd ? 'nakomis.com' : 'sandbox.nakomis.com'} (must be in us-east-1 for CloudFront)`,
+});
+
+new WebStack(app, 'NakostatWebStack', {
+  ...londonEnv,
+  deployEnv,
+  certificate: webCertStack.certificate,
+  crossRegionReferences: true,
+  description: `CloudFront + S3 SPA hosting and Cognito client for nakostat (${deployEnv})`,
 });
 
 const { version: infraVersion } = JSON.parse(fs.readFileSync('./version.json', 'utf-8'));
