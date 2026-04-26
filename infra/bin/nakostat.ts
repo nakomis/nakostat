@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
+import * as fs from 'fs';
 import { IotStack } from '../lib/iot-stack';
 import { GithubCiStack } from '../lib/github-ci-stack';
 import { DynamoStack } from '../lib/dynamo-stack';
@@ -47,3 +48,7 @@ new GithubCiStack(app, 'NakostatGithubCiStack', {
   githubOidcProviderArn,
   description: `GitHub Actions OIDC role for nakostat CI (${deployEnv})`,
 });
+
+const { version: infraVersion } = JSON.parse(fs.readFileSync('./version.json', 'utf-8'));
+cdk.Tags.of(app).add('MH-Project', 'nakostat');
+cdk.Tags.of(app).add('MH-Version', infraVersion);
