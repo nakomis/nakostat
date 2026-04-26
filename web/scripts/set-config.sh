@@ -39,7 +39,9 @@ cp "$SCRIPT_DIR/../src/config/config.json.template" "$CONFIG_FILE"
 echo "Setting env to $ENV"
 setValue env "$ENV"
 
-REGION=$(aws configure get region)
+# aws configure get region only reads the config file, not AWS_DEFAULT_REGION.
+# Prefer the env var (set by configure-aws-credentials in CI), fall back to config file.
+REGION="${AWS_DEFAULT_REGION:-${AWS_REGION:-$(aws configure get region)}}"
 setValue region "$REGION"
 
 USER_POOL_ID=$(aws ssm get-parameter --name "/nakomis-infra/${AWS_ENV}/cognito/user-pool-id" --query "Parameter.Value" --output text)
