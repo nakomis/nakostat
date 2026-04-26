@@ -15,7 +15,13 @@ else
 fi
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-export AWS_PROFILE=nakom.is-$AWS_ENV
+
+# Only set AWS_PROFILE when no credential env vars are present (i.e. local dev).
+# In CI, configure-aws-credentials sets AWS_ACCESS_KEY_ID etc. directly and
+# AWS_PROFILE would override them with a nonexistent local profile.
+if [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]; then
+  export AWS_PROFILE=nakom.is-$AWS_ENV
+fi
 
 CONFIG_FILE="$SCRIPT_DIR/../src/config/config.json"
 
