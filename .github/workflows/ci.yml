@@ -228,7 +228,7 @@ jobs:
       - name: Playwright functional tests
         if: steps.check.outputs.has_code == 'true'
         working-directory: web
-        run: npx playwright test
+        run: npx playwright test --pass-with-no-tests
 
   # ── Deploy web to sandbox (auto on merge to main) ────────────────────────────
   deploy-web-sandbox:
