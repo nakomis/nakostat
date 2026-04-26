@@ -3,6 +3,8 @@
 # Populates src/config/config.json from AWS SSM before build.
 # Usage: set-config.sh [sandbox|prod|localhost]
 
+set -euo pipefail
+
 PARAM=$1
 ENV="${PARAM:=sandbox}"
 
@@ -28,8 +30,11 @@ function setValue() {
 
 cp "$SCRIPT_DIR/../src/config/config.json.template" "$CONFIG_FILE"
 
+echo "Setting env to $ENV"
 setValue env "$ENV"
-setValue region "$(aws configure get region)"
+
+REGION=$(aws configure get region)
+setValue region "$REGION"
 
 USER_POOL_ID=$(aws ssm get-parameter --name "/nakomis-infra/${AWS_ENV}/cognito/user-pool-id" --query "Parameter.Value" --output text)
 setValue authority "https://cognito-idp.eu-west-2.amazonaws.com/${USER_POOL_ID}"
