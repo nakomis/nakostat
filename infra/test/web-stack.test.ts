@@ -91,8 +91,8 @@ describe('WebStack — sandbox', () => {
     template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
       ClientName: 'nakostat-sandbox',
       GenerateSecret: false,
-      CallbackURLs: Match.arrayWith(['https://nakostat.sandbox.nakomis.com', 'http://localhost:5173']),
-      LogoutURLs: Match.arrayWith(['https://nakostat.sandbox.nakomis.com', 'http://localhost:5173']),
+      CallbackURLs: Match.arrayWith(['https://nakostat.sandbox.nakomis.com/loggedin', 'http://localhost:3000/loggedin']),
+      LogoutURLs: Match.arrayWith(['https://nakostat.sandbox.nakomis.com/logout', 'http://localhost:3000/logout']),
     });
   });
 
@@ -120,6 +120,20 @@ describe('WebStack — sandbox', () => {
   test('publishes client ID to SSM', () => {
     template.hasResourceProperties('AWS::SSM::Parameter', {
       Name: '/nakostat/sandbox/cognito/client-id',
+      Type: 'String',
+    });
+  });
+
+  test('publishes bucket name to SSM', () => {
+    template.hasResourceProperties('AWS::SSM::Parameter', {
+      Name: '/nakostat/sandbox/web/bucket-name',
+      Type: 'String',
+    });
+  });
+
+  test('publishes distribution ID to SSM', () => {
+    template.hasResourceProperties('AWS::SSM::Parameter', {
+      Name: '/nakostat/sandbox/web/distribution-id',
       Type: 'String',
     });
   });
@@ -156,7 +170,8 @@ describe('WebStack — prod', () => {
   test('creates a Cognito user pool client for prod nakostat', () => {
     template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
       ClientName: 'nakostat-prod',
-      CallbackURLs: Match.arrayWith(['https://nakostat.nakomis.com']),
+      CallbackURLs: Match.arrayWith(['https://nakostat.nakomis.com/loggedin']),
+      LogoutURLs: Match.arrayWith(['https://nakostat.nakomis.com/logout']),
     });
   });
 

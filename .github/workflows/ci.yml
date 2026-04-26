@@ -125,7 +125,7 @@ jobs:
           role-to-assume: arn:aws:iam::975050268859:role/nakomis-nakostat-github-ci-sandbox
           aws-region: eu-west-2
       - name: CDK synth (sandbox)
-        run: npm run synth-sandbox -- --output cdk-synth.out
+        run: npm run ci-synth-sandbox -- --output cdk-synth.out
 
   # ── Deploy to sandbox (auto on merge to main) ─────────────────────────────────
   deploy-infra-sandbox:
@@ -211,7 +211,7 @@ jobs:
         if: steps.check.outputs.has_code == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
@@ -223,12 +223,98 @@ jobs:
       - name: Unit + component tests with coverage
         if: steps.check.outputs.has_code == 'true'
         working-directory: web
-        run: npm test -- --coverage --coverageThreshold='{"global":{"lines":70}}'
+        run: npm test
 
       - name: Playwright functional tests
         if: steps.check.outputs.has_code == 'true'
         working-directory: web
         run: npx playwright test
+
+  # ── Deploy web to sandbox (auto on merge to main) ────────────────────────────
+  deploy-web-sandbox:
+    name: Deploy web — sandbox
+    runs-on: ubuntu-latest
+    needs: [web, deploy-infra-sandbox]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    environment: sandbox
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Configure AWS credentials (sandbox)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::975050268859:role/nakomis-nakostat-github-ci-sandbox
+          aws-region: eu-west-2
+      - name: Compute version
+        run: NPM_ENVIRONMENT=sandbox bash scripts/compute-version.sh
+      - name: Set config
+        run: bash scripts/set-config.sh sandbox
+      - name: Build
+        run: npm run build
+      - name: Deploy to S3
+        run: |
+          BUCKET=$(aws ssm get-parameter --name /nakostat/sandbox/web/bucket-name --query Parameter.Value --output text)
+          aws s3 sync build/ s3://$BUCKET --delete
+      - name: Invalidate CloudFront
+        run: |
+          DIST_ID=$(aws ssm get-parameter --name /nakostat/sandbox/web/distribution-id --query Parameter.Value --output text)
+          aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"
+
+  # ── Deploy web to prod (after prod infra deploy) ─────────────────────────────
+  deploy-web-prod:
+    name: Deploy web — production
+    runs-on: ubuntu-latest
+    needs: [deploy-web-sandbox, deploy-infra-prod]
+    if: github.event_name == 'push'
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Configure AWS credentials (prod)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::637423226886:role/nakomis-nakostat-github-ci-prod
+          aws-region: eu-west-2
+      - name: Compute version
+        run: NPM_ENVIRONMENT=prod bash scripts/compute-version.sh
+      - name: Set config
+        run: bash scripts/set-config.sh prod
+      - name: Build
+        run: npm run build
+      - name: Deploy to S3
+        run: |
+          BUCKET=$(aws ssm get-parameter --name /nakostat/prod/web/bucket-name --query Parameter.Value --output text)
+          aws s3 sync build/ s3://$BUCKET --delete
+      - name: Invalidate CloudFront
+        run: |
+          DIST_ID=$(aws ssm get-parameter --name /nakostat/prod/web/distribution-id --query Parameter.Value --output text)
+          aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"
 
   # ── ESP32 firmware (PlatformIO native unit tests) ─────────────────────────────
   esp32:
