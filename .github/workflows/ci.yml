@@ -55,12 +55,12 @@ jobs:
       - name: Test + coverage
         if: steps.check.outputs.has_code == 'true'
         working-directory: embedded/pi/sensor-daemon
-        run: cargo llvm-cov --lcov --output-path lcov.info --ignore-filename-regex 'main\.rs'
+        run: cargo llvm-cov --lcov --output-path lcov.info
 
       - name: Check coverage threshold (70%)
         if: steps.check.outputs.has_code == 'true'
         working-directory: embedded/pi/sensor-daemon
-        run: cargo llvm-cov report --fail-under-lines 70 --ignore-filename-regex 'main\.rs'
+        run: cargo llvm-cov report --fail-under-lines 70
 
       - name: Upload coverage report
         if: steps.check.outputs.has_code == 'true'
