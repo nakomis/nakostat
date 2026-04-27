@@ -1,4 +1,6 @@
 import { Box, Typography } from '@mui/material';
+import Config from '../../config/config';
+import CurrentStatePanel from '../CurrentStatePanel';
 
 function HomePage() {
   return (
@@ -6,9 +8,7 @@ function HomePage() {
       <Typography variant="h5" gutterBottom>
         Dashboard
       </Typography>
-      <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.6)' }}>
-        Thermostat controls coming soon.
-      </Typography>
+      <CurrentStatePanel apiUrl={Config.api.apiUrl} />
     </Box>
   );
 }

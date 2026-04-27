@@ -21,8 +21,10 @@
     "update-dependencies": "npx -y npm-check-updates -u && npm i"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.0.0",
     "@aws-sdk/client-iot": "^3.0.0",
     "@aws-sdk/client-ssm": "^3.0.0",
+    "@aws-sdk/lib-dynamodb": "^3.0.0",
     "aws-cdk-lib": "2.201.0",
     "constructs": "^10.0.0"
   },
