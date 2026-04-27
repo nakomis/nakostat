@@ -384,3 +384,41 @@ jobs:
             exit 0
           fi
           pio test -e native
+
+  # ── CI Status gate (always runs, allows skipped jobs) ─────────────────────────
+  ci-status:
+    name: CI Status
+    runs-on: ubuntu-latest
+    needs: [changes, sensor-daemon, infra, web, esp32]
+    if: always()
+    steps:
+      - name: Check CI results
+        run: |
+          # Fail if any job failed (skip/success are acceptable)
+          if [[ "${{ needs.sensor-daemon.result }}" == "failure" ]] || \
+             [[ "${{ needs.infra.result }}" == "failure" ]] || \
+             [[ "${{ needs.web.result }}" == "failure" ]] || \
+             [[ "${{ needs.esp32.result }}" == "failure" ]]; then
+            echo "❌ CI checks failed"
+            exit 1
+          fi
+          echo "✅ All CI checks passed or were skipped"
+
+  # ── CI Status gate (always runs, allows skipped jobs) ─────────────────────────
+  ci-status:
+    name: CI Status
+    runs-on: ubuntu-latest
+    needs: [changes, sensor-daemon, infra, web, esp32]
+    if: always()
+    steps:
+      - name: Check CI results
+        run: |
+          # Fail if any job failed (skip/success are acceptable)
+          if [[ "${{ needs.sensor-daemon.result }}" == "failure" ]] || \
+             [[ "${{ needs.infra.result }}" == "failure" ]] || \
+             [[ "${{ needs.web.result }}" == "failure" ]] || \
+             [[ "${{ needs.esp32.result }}" == "failure" ]]; then
+            echo "❌ CI checks failed"
+            exit 1
+          fi
+          echo "✅ All CI checks passed or were skipped"
