@@ -1,0 +1,26 @@
+[Unit]
+Description=Nakostat Thermostat Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nakostat
+Group=nakostat
+SupplementaryGroups=i2c
+ExecStart=/opt/nakostat/nakostat --config /etc/nakostat/nakostat.toml
+Restart=on-failure
+RestartSec=10
+RuntimeDirectory=nakostat
+StandardOutput=file:/var/log/nakostat/nakostat.log
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/nakostat /etc/nakostat /run/nakostat
+
+[Install]
+WantedBy=multi-user.target
