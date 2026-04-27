@@ -17,9 +17,6 @@ jobs:
   sensor-daemon:
     name: Sensor daemon (Rust)
     runs-on: ubuntu-latest
-    if: |
-      github.event_name == 'push' ||
-      contains(github.event.pull_request.changed_files_url, 'embedded/pi')
     steps:
       - uses: actions/checkout@v4
         with:
