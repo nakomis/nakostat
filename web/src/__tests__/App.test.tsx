@@ -18,6 +18,7 @@ jest.mock('../config/config', () => ({
       redirectUri: 'http://localhost:3000/loggedin',
       logoutUri: 'http://localhost:3000/logout',
     },
+    api: { apiUrl: 'http://localhost:3001' },
   },
 }));
 

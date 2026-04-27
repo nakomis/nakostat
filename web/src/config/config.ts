@@ -11,6 +11,7 @@ export interface NakostatConfig {
     redirectUri: string;
     logoutUri: string;
   };
+  api: { apiUrl: string };
 }
 
 const Config: NakostatConfig = require('./config.json');

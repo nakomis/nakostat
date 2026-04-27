@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import { IotStack } from '../lib/iot-stack';
 import { GithubCiStack } from '../lib/github-ci-stack';
 import { DynamoStack } from '../lib/dynamo-stack';
+import { IotRulesStack } from '../lib/iot-rules-stack';
+import { ApiStack } from '../lib/api-stack';
 import { WebCertStack } from '../lib/web-cert-stack';
 import { WebStack } from '../lib/web-stack';
 
@@ -38,10 +40,26 @@ new IotStack(app, 'NakostatIotStack', {
   description: `Nakostat IoT Things, certificates, and policies (${deployEnv})`,
 });
 
-new DynamoStack(app, 'NakostatDynamoStack', {
+const dynamoStack = new DynamoStack(app, 'NakostatDynamoStack', {
   ...londonEnv,
   deployEnv,
   description: `Nakostat DynamoDB tables for sensor readings and device state (${deployEnv})`,
+});
+
+new IotRulesStack(app, 'NakostatIotRulesStack', {
+  ...londonEnv,
+  deployEnv,
+  readingsTable: dynamoStack.readingsTable,
+  stateTable: dynamoStack.stateTable,
+  description: `IoT Topic Rules routing MQTT to DynamoDB (${deployEnv})`,
+});
+
+new ApiStack(app, 'NakostatApiStack', {
+  ...londonEnv,
+  deployEnv,
+  readingsTable: dynamoStack.readingsTable,
+  stateTable: dynamoStack.stateTable,
+  description: `HTTP API Gateway for nakostat web dashboard (${deployEnv})`,
 });
 
 const webCertStack = new WebCertStack(app, 'NakostatWebCertStack', {
