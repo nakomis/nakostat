@@ -1,0 +1,18 @@
+# nakostat-sensor example configuration
+# Copy to /etc/nakostat/sensor.toml and fill in the real values.
+
+[mqtt]
+endpoint  = "abc123-ats.iot.eu-west-1.amazonaws.com"
+port      = 8883
+client_id = "nakostat-pi-prod"
+cert_path = "/etc/nakostat/certs/pi-cert.pem"
+key_path  = "/etc/nakostat/certs/pi-key.pem"
+topic     = "nakostat/prod/pi/readings"
+
+[sensor]
+i2c_bus            = 1       # /dev/i2c-1 on Pi 5
+publish_interval_s = 30
+warmup_s           = 180     # ENS160 needs ~3 min to stabilise on cold start
+
+[socket]
+path = "/run/nakostat/sensor.sock"
