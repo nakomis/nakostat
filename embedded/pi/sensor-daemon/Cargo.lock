@@ -600,7 +600,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nakostat-sensor"
+name = "nakostat"
 version = "0.1.0"
 dependencies = [
  "aht20-driver",
