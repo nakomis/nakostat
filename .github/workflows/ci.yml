@@ -13,13 +13,10 @@ env:
   CHECKOUT_REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/merge', github.event.pull_request.number) || github.sha }}
 
 jobs:
-  # ── Rust / Pi UI ─────────────────────────────────────────────────────────────
-  pi-ui:
-    name: Pi UI (Rust)
+  # ── Rust / Sensor daemon ──────────────────────────────────────────────────────
+  sensor-daemon:
+    name: Sensor daemon (Rust)
     runs-on: ubuntu-latest
-    if: |
-      github.event_name == 'push' ||
-      contains(github.event.pull_request.changed_files_url, 'embedded/pi')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,7 +25,7 @@ jobs:
       - name: Check for Rust code
         id: check
         run: |
-          if [ -f embedded/pi/Cargo.toml ]; then
+          if [ -f embedded/pi/sensor-daemon/Cargo.toml ]; then
             echo "has_code=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_code=false" >> "$GITHUB_OUTPUT"
@@ -40,27 +37,37 @@ jobs:
         with:
           components: llvm-tools-preview
 
+      - name: Cache Cargo registry + build
+        if: steps.check.outputs.has_code == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            embedded/pi/sensor-daemon/target
+          key: ${{ runner.os }}-cargo-sensor-daemon-${{ hashFiles('embedded/pi/sensor-daemon/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-sensor-daemon-
+
       - name: Install cargo-llvm-cov
         if: steps.check.outputs.has_code == 'true'
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Test + coverage
         if: steps.check.outputs.has_code == 'true'
-        working-directory: embedded/pi
-        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+        working-directory: embedded/pi/sensor-daemon
+        run: cargo llvm-cov --lcov --output-path lcov.info
 
       - name: Check coverage threshold (70%)
         if: steps.check.outputs.has_code == 'true'
-        working-directory: embedded/pi
-        run: |
-          cargo llvm-cov report --fail-under-lines 70
+        working-directory: embedded/pi/sensor-daemon
+        run: cargo llvm-cov report --fail-under-lines 70
 
       - name: Upload coverage report
         if: steps.check.outputs.has_code == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: pi-coverage
-          path: embedded/pi/lcov.info
+          name: sensor-daemon-coverage
+          path: embedded/pi/sensor-daemon/lcov.info
 
   # ── TypeScript / CDK + Lambda ─────────────────────────────────────────────────
   infra:

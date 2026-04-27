@@ -1,0 +1,36 @@
+[Unit]
+Description=Nakostat sensor daemon (ENS160+AHT21 → MQTT)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nakostat-sensor --config /etc/nakostat/sensor.toml
+Restart=on-failure
+RestartSec=10
+
+# Run as a dedicated unprivileged user
+User=nakostat
+Group=nakostat
+
+# I²C access
+SupplementaryGroups=i2c
+
+# Runtime directory for the Unix socket
+RuntimeDirectory=nakostat
+RuntimeDirectoryMode=0750
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nakostat-sensor
+
+# Harden the service a little
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/run/nakostat
+
+[Install]
+WantedBy=multi-user.target
