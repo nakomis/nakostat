@@ -389,7 +389,7 @@ jobs:
   ci-status:
     name: CI Status
     runs-on: ubuntu-latest
-    needs: [changes, sensor-daemon, infra, web, esp32]
+    needs: [changes, sensor-daemon, infra, synth-infra, web, esp32]
     if: always()
     steps:
       - name: Check CI results
@@ -397,6 +397,7 @@ jobs:
           # Fail if any job failed (skip/success are acceptable)
           if [[ "${{ needs.sensor-daemon.result }}" == "failure" ]] || \
              [[ "${{ needs.infra.result }}" == "failure" ]] || \
+             [[ "${{ needs.synth-infra.result }}" == "failure" ]] || \
              [[ "${{ needs.web.result }}" == "failure" ]] || \
              [[ "${{ needs.esp32.result }}" == "failure" ]]; then
             echo "❌ CI checks failed"
