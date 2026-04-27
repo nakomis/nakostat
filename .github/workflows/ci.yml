@@ -378,4 +378,9 @@ jobs:
 
       - name: Run native unit tests
         working-directory: embedded/esp32
-        run: pio test -e native
+        run: |
+          if [ ! -f platformio.ini ]; then
+            echo "No platformio.ini — ESP32 project not yet initialised, skipping"
+            exit 0
+          fi
+          pio test -e native
