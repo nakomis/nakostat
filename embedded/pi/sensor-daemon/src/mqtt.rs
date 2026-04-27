@@ -191,4 +191,68 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_str(&sink.calls()[0].1).unwrap();
         assert_eq!(payload["warming_up"], true);
     }
+
+    #[test]
+    fn sink_error_propagates_through_publisher() {
+        struct FailSink;
+        impl MqttSink for FailSink {
+            fn publish(&self, _topic: &str, _payload: &str) -> Result<()> {
+                Err(anyhow::anyhow!("sink failed"))
+            }
+        }
+        let publisher = MqttPublisher::with_sink(Arc::new(FailSink), "t");
+        assert!(publisher.publish(&test_reading()).is_err());
+    }
+
+    fn dummy_cfg(cert_path: &str, key_path: &str) -> crate::config::MqttConfig {
+        crate::config::MqttConfig {
+            endpoint: "localhost".to_string(),
+            port: 8883,
+            client_id: "test".to_string(),
+            cert_path: cert_path.to_string(),
+            key_path: key_path.to_string(),
+            topic: "test/topic".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn new_errors_on_missing_cert_file() {
+        let err = MqttPublisher::new(&dummy_cfg("/nonexistent/cert.pem", "/nonexistent/key.pem"))
+            .await
+            .err()
+            .unwrap();
+        assert!(err.to_string().contains("reading cert"), "unexpected: {err}");
+    }
+
+    #[tokio::test]
+    async fn new_errors_on_missing_key_file() {
+        use std::io::Write;
+        let mut cert = tempfile::NamedTempFile::new().unwrap();
+        write!(cert, "not a cert").unwrap();
+        let err = MqttPublisher::new(&dummy_cfg(
+            cert.path().to_str().unwrap(),
+            "/nonexistent/key.pem",
+        ))
+        .await
+        .err()
+        .unwrap();
+        assert!(err.to_string().contains("reading key"), "unexpected: {err}");
+    }
+
+    #[tokio::test]
+    async fn new_errors_on_no_private_key_in_pem() {
+        use std::io::Write;
+        let mut cert = tempfile::NamedTempFile::new().unwrap();
+        write!(cert, "not a cert").unwrap();
+        let mut key = tempfile::NamedTempFile::new().unwrap();
+        write!(key, "not a key").unwrap();
+        let err = MqttPublisher::new(&dummy_cfg(
+            cert.path().to_str().unwrap(),
+            key.path().to_str().unwrap(),
+        ))
+        .await
+        .err()
+        .unwrap();
+        assert!(err.to_string().contains("no private key found"), "unexpected: {err}");
+    }
 }
