@@ -5,6 +5,10 @@ module.exports = {
   transform: {
     '^.+\\.tsx?$': 'ts-jest'
   },
+  transformIgnorePatterns: [
+    '/node_modules/(?!(@aws-sdk|@smithy|@nodable)/)'
+  ],
+  setupFiles: ['<rootDir>/test/jest-setup.js'],
   collectCoverageFrom: [
     'lib/**/*.ts',
     'lambda/**/*.ts',
