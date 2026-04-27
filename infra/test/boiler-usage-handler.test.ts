@@ -1,10 +1,9 @@
 import { mockClient } from 'aws-sdk-client-mock';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { handler } from '../lambda/api/boiler-usage-handler';
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 
-const dynamoMock = mockClient(DynamoDBClient);
+const dynamoMock = mockClient(DynamoDBDocumentClient);
 
 beforeEach(() => {
   dynamoMock.reset();
@@ -57,8 +56,8 @@ describe('boiler-usage handler', () => {
 
     expect(result.statusCode).toBe(200);
     const queryCall = dynamoMock.commandCalls(QueryCommand)[0]!;
-    expect(queryCall.args[0].input.ExpressionAttributeValues![':from']).toBe(from);
-    expect(queryCall.args[0].input.ExpressionAttributeValues![':to']).toBe(to);
+    expect(queryCall.args[0].input.ExpressionAttributeValues![':from']).toBe(new Date(from).toISOString());
+    expect(queryCall.args[0].input.ExpressionAttributeValues![':to']).toBe(new Date(to).toISOString());
   });
 
   test('returns 400 if from date is invalid', async () => {

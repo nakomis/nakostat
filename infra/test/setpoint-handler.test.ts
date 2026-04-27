@@ -1,11 +1,10 @@
 import { mockClient } from 'aws-sdk-client-mock';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { IoTDataPlaneClient, PublishCommand } from '@aws-sdk/client-iot-data-plane';
 import { handler } from '../lambda/api/setpoint-handler';
 import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 
-const dynamoMock = mockClient(DynamoDBClient);
+const dynamoMock = mockClient(DynamoDBDocumentClient);
 const iotMock = mockClient(IoTDataPlaneClient);
 
 beforeEach(() => {
