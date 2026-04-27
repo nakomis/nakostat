@@ -72,3 +72,6 @@ case $ENV in
     exit 1
     ;;
 esac
+
+API_URL=$(aws ssm get-parameter --name "/nakostat/${AWS_ENV}/api/url" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+setValue apiUrl "$API_URL"
