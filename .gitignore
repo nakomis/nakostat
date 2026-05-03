@@ -37,3 +37,7 @@ infra/cdk-deploy.out/
 
 # Test coverage output
 infra/coverage/
+
+.claude
+
+
