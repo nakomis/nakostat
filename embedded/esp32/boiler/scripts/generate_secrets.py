@@ -12,9 +12,14 @@ import boto3
 from botocore.exceptions import ClientError
 
 # Configuration
+# Boiler firmware connects as the nakostat ESP32 Thing for the chosen env.
+# The nakostat IotStack provisions the Thing/cert/policy and stores the
+# cert + private key in SSM under /nakostat/{env}/esp32/...
 PROJECT_NAME = "NakostatBoiler"
-THING_NAME = f"{PROJECT_NAME}Thing"
-SSM_PREFIX = f"/{PROJECT_NAME}/{THING_NAME}"
+NAKOSTAT_ENV = os.environ.get('NAKOSTAT_ENV', 'sandbox')
+THING_NAME = f"nakostat-esp32-{NAKOSTAT_ENV}"
+SSM_PREFIX = f"/nakostat/{NAKOSTAT_ENV}/esp32"
+TOPIC_PREFIX = f"nakostat/{NAKOSTAT_ENV}/esp32"
 
 # WiFi credentials are stored at a common location
 WIFI_SSM_PREFIX = "/Nakomis/Wifi"
@@ -78,10 +83,19 @@ def generate_secrets_h(
 // AWS IoT credentials provider endpoint
 #define AWS_CREDENTIALS_ENDPOINT "{credentials_endpoint}"
 
-// IoT Thing name
+// IoT Thing name (used as MQTT client id)
 #define AWS_IOT_THING_NAME "{THING_NAME}"
 
-// Role alias for credentials provider
+// MQTT topic prefix for this device. Command topic = TOPIC_PREFIX/command,
+// status topic = TOPIC_PREFIX/status.
+#define MQTT_TOPIC_PREFIX "{TOPIC_PREFIX}"
+#define MQTT_COMMAND_TOPIC MQTT_TOPIC_PREFIX "/command"
+#define MQTT_STATUS_TOPIC  MQTT_TOPIC_PREFIX "/status"
+
+// Fleet env this firmware was provisioned for
+#define NAKOSTAT_ENV "{NAKOSTAT_ENV}"
+
+// Role alias for credentials provider (unused for direct MQTT auth, kept for OTA flows)
 #define AWS_IOT_ROLE_ALIAS "{PROJECT_NAME}RoleAlias"
 
 // Certificate (PEM format)
