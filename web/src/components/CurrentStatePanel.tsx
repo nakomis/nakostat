@@ -11,15 +11,19 @@ interface ThermostatState {
 
 interface CurrentStatePanelProps {
   apiUrl: string;
+  accessToken?: string;
 }
 
-function CurrentStatePanel({ apiUrl }: CurrentStatePanelProps) {
+function CurrentStatePanel({ apiUrl, accessToken }: CurrentStatePanelProps) {
   const [state, setState] = useState<ThermostatState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${apiUrl}/state`)
+    const headers: HeadersInit = accessToken
+      ? { Authorization: `Bearer ${accessToken}` }
+      : {};
+    fetch(`${apiUrl}/state`, { headers })
       .then(res => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json() as Promise<ThermostatState>;
@@ -32,7 +36,7 @@ function CurrentStatePanel({ apiUrl }: CurrentStatePanelProps) {
         setError(err.message);
         setLoading(false);
       });
-  }, [apiUrl]);
+  }, [apiUrl, accessToken]);
 
   return (
     <Card sx={{ backgroundColor: '#2c313a', color: 'white', mb: 2 }}>

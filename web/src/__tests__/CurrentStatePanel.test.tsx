@@ -50,4 +50,21 @@ describe('CurrentStatePanel', () => {
     render(<CurrentStatePanel apiUrl={TEST_API_URL} />);
     await waitFor(() => expect(screen.getByText(/HTTP 404/)).toBeInTheDocument());
   });
+
+  test('sends a Bearer Authorization header when an access token is provided', async () => {
+    global.fetch = jest.fn(() => new Promise(() => {})) as jest.Mock;
+    render(<CurrentStatePanel apiUrl={TEST_API_URL} accessToken="abc123" />);
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    expect(global.fetch).toHaveBeenCalledWith(
+      `${TEST_API_URL}/state`,
+      { headers: { Authorization: 'Bearer abc123' } },
+    );
+  });
+
+  test('omits the Authorization header when no access token is provided', async () => {
+    global.fetch = jest.fn(() => new Promise(() => {})) as jest.Mock;
+    render(<CurrentStatePanel apiUrl={TEST_API_URL} />);
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    expect(global.fetch).toHaveBeenCalledWith(`${TEST_API_URL}/state`, { headers: {} });
+  });
 });
