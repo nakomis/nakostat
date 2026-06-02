@@ -12,6 +12,7 @@ function makeStack(deployEnv: 'sandbox' | 'prod' = 'sandbox') {
     deployEnv,
     readingsTable: dynamoStack.readingsTable,
     stateTable: dynamoStack.stateTable,
+    boilerUsageTable: dynamoStack.boilerUsageTable,
   });
   return Template.fromStack(stack);
 }
@@ -61,8 +62,52 @@ describe('ApiStack — sandbox', () => {
     });
   });
 
-  test('creates two Lambda functions for API handlers', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 2);
+  test('creates four Lambda functions for API handlers', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 4);
+  });
+
+  test('creates a Cognito JWT authorizer', () => {
+    template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {
+      AuthorizerType: 'JWT',
+      IdentitySource: ['$request.header.Authorization'],
+    });
+  });
+
+  test('GET /state route is protected by the JWT authorizer', () => {
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'GET /state',
+      AuthorizationType: 'JWT',
+      AuthorizerId: Match.anyValue(),
+    });
+  });
+
+  test('GET /readings route is protected by the JWT authorizer', () => {
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'GET /readings',
+      AuthorizationType: 'JWT',
+    });
+  });
+
+  test('creates protected POST /setpoint route', () => {
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'POST /setpoint',
+      AuthorizationType: 'JWT',
+    });
+  });
+
+  test('creates protected GET /boiler-usage route', () => {
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'GET /boiler-usage',
+      AuthorizationType: 'JWT',
+    });
+  });
+
+  test('CORS allows POST', () => {
+    template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
+      CorsConfiguration: {
+        AllowMethods: Match.arrayWith(['POST']),
+      },
+    });
   });
 
   test('publishes API URL to SSM', () => {

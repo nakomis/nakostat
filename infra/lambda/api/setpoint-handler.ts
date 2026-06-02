@@ -18,7 +18,8 @@ interface SetpointRequest {
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
   const tableName = process.env.STATE_TABLE_NAME!;
   const deployEnv = process.env.DEPLOY_ENV || 'sandbox';
-  const userId = (event.requestContext as any).authorizer?.claims?.sub;
+  // HTTP API (v2) JWT authoriser puts claims at requestContext.authorizer.jwt.claims
+  const userId = (event.requestContext as any).authorizer?.jwt?.claims?.sub;
 
   if (!userId) {
     return {

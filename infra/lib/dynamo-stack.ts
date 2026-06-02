@@ -9,6 +9,7 @@ export interface DynamoStackProps extends cdk.StackProps {
 export class DynamoStack extends cdk.Stack {
   readonly readingsTable: dynamodb.Table;
   readonly stateTable: dynamodb.Table;
+  readonly boilerUsageTable: dynamodb.Table;
 
   constructor(scope: Construct, id: string, props: DynamoStackProps) {
     super(scope, id, props);
@@ -37,6 +38,18 @@ export class DynamoStack extends cdk.Stack {
         : cdk.RemovalPolicy.DESTROY,
     });
 
+    this.boilerUsageTable = new dynamodb.Table(this, 'BoilerUsageTable', {
+      tableName: `nakostat-boiler-usage-${deployEnv}`,
+      partitionKey: { name: 'boilerId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      timeToLiveAttribute: 'ttl',
+      removalPolicy: deployEnv === 'prod'
+        ? cdk.RemovalPolicy.RETAIN
+        : cdk.RemovalPolicy.DESTROY,
+    });
+
     new cdk.CfnOutput(this, 'ReadingsTableName', {
       value: this.readingsTable.tableName,
       description: 'DynamoDB table for sensor readings time-series',
@@ -45,6 +58,11 @@ export class DynamoStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'StateTableName', {
       value: this.stateTable.tableName,
       description: 'DynamoDB table for current device state',
+    });
+
+    new cdk.CfnOutput(this, 'BoilerUsageTableName', {
+      value: this.boilerUsageTable.tableName,
+      description: 'DynamoDB table for boiler on/off history',
     });
   }
 }
