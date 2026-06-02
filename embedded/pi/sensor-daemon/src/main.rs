@@ -1,5 +1,6 @@
 mod config;
 mod mqtt;
+mod schedule;
 mod sensor;
 mod socket;
 
@@ -46,6 +47,11 @@ async fn main() -> Result<()> {
     #[cfg(not(feature = "real-sensor"))]
     let mut reader: Box<dyn SensorReader> = Box::new(MockSensorReader::default());
 
+    // Hard-coded heating schedule (STAT-45). Later stories make this stored and
+    // editable (STAT-46+); the daemon is the source of truth for the setpoint.
+    let schedule = schedule::default_schedule();
+    info!("Loaded hard-coded heating schedule");
+
     let warmup = std::time::Duration::from_secs(cfg.sensor.warmup_s);
     let interval = std::time::Duration::from_secs(cfg.sensor.publish_interval_s);
 
@@ -63,6 +69,18 @@ async fn main() -> Result<()> {
                 continue;
             }
         };
+
+        // Evaluate the heating schedule against the local wall clock (STAT-45).
+        // The setpoint produced here is what the control loop will act on.
+        // TODO(STAT-51): feed this into the hysteresis control loop to drive the
+        // relay; the comparison below is indicative logging only (no hysteresis).
+        if let Some(setpoint) = schedule.current_setpoint(chrono::Local::now()) {
+            let heat = if reading.temperature_c < setpoint { "ON" } else { "off" };
+            info!(
+                "Schedule setpoint {setpoint:.1}°C, measured {:.1}°C → heat {heat}",
+                reading.temperature_c
+            );
+        }
 
         if let Err(e) = mqtt_publisher.publish(&reading) {
             warn!("MQTT publish error: {e}");
