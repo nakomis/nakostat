@@ -1,42 +1,33 @@
 import { Card, CardContent, Typography, Chip, CircularProgress, Box } from '@mui/material';
 import { useEffect, useState } from 'react';
-
-interface ThermostatState {
-  deviceId: string;
-  boilerActive?: boolean;
-  setpoint?: number;
-  mode?: string;
-  updatedAt?: string;
-}
+import { NakostatApi, ThermostatState } from '../services/api';
 
 interface CurrentStatePanelProps {
-  apiUrl: string;
-  accessToken?: string;
+  api: NakostatApi;
 }
 
-function CurrentStatePanel({ apiUrl, accessToken }: CurrentStatePanelProps) {
+function CurrentStatePanel({ api }: CurrentStatePanelProps) {
   const [state, setState] = useState<ThermostatState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const headers: HeadersInit = accessToken
-      ? { Authorization: `Bearer ${accessToken}` }
-      : {};
-    fetch(`${apiUrl}/state`, { headers })
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json() as Promise<ThermostatState>;
-      })
+    let cancelled = false;
+    api.getState()
       .then(data => {
+        if (cancelled) return;
         setState(data);
         setLoading(false);
       })
       .catch((err: Error) => {
+        if (cancelled) return;
         setError(err.message);
         setLoading(false);
       });
-  }, [apiUrl, accessToken]);
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
 
   return (
     <Card sx={{ backgroundColor: '#2c313a', color: 'white', mb: 2 }}>
