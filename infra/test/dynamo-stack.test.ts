@@ -105,6 +105,40 @@ describe('DynamoStack — sandbox', () => {
     expect(stateTable.Properties['TimeToLiveSpecification']).toBeUndefined();
   });
 
+  test('creates boiler-usage table with correct name', () => {
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'nakostat-boiler-usage-sandbox',
+    });
+  });
+
+  test('boiler-usage table has boilerId partition key and timestamp sort key', () => {
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'nakostat-boiler-usage-sandbox',
+      KeySchema: [
+        { AttributeName: 'boilerId', KeyType: 'HASH' },
+        { AttributeName: 'timestamp', KeyType: 'RANGE' },
+      ],
+      AttributeDefinitions: [
+        { AttributeName: 'boilerId', AttributeType: 'S' },
+        { AttributeName: 'timestamp', AttributeType: 'S' },
+      ],
+    });
+  });
+
+  test('boiler-usage table has TTL enabled on ttl attribute', () => {
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'nakostat-boiler-usage-sandbox',
+      TimeToLiveSpecification: { AttributeName: 'ttl', Enabled: true },
+    });
+  });
+
+  test('outputs boiler-usage table name', () => {
+    template.hasOutput('BoilerUsageTableName', {
+      Description: 'DynamoDB table for boiler on/off history',
+      Value: Match.anyValue(),
+    });
+  });
+
   test('sandbox tables use DESTROY removal policy', () => {
     const tables = template.findResources('AWS::DynamoDB::Table');
     for (const table of Object.values(tables) as { UpdateReplacePolicy?: string; DeletionPolicy?: string }[]) {
@@ -135,6 +169,7 @@ describe('DynamoStack — prod', () => {
   test('uses prod suffix in table names', () => {
     template.hasResourceProperties('AWS::DynamoDB::Table', { TableName: 'nakostat-readings-prod' });
     template.hasResourceProperties('AWS::DynamoDB::Table', { TableName: 'nakostat-state-prod' });
+    template.hasResourceProperties('AWS::DynamoDB::Table', { TableName: 'nakostat-boiler-usage-prod' });
   });
 
   test('prod tables use RETAIN removal policy', () => {

@@ -18,8 +18,10 @@ describe('setpoint handler', () => {
   const baseEvent = {
     requestContext: {
       authorizer: {
-        claims: {
-          sub: 'user-123',
+        jwt: {
+          claims: {
+            sub: 'user-123',
+          },
         },
       },
     },

@@ -54,11 +54,12 @@ new IotRulesStack(app, 'NakostatIotRulesStack', {
   description: `IoT Topic Rules routing MQTT to DynamoDB (${deployEnv})`,
 });
 
-new ApiStack(app, 'NakostatApiStack', {
+const apiStack = new ApiStack(app, 'NakostatApiStack', {
   ...londonEnv,
   deployEnv,
   readingsTable: dynamoStack.readingsTable,
   stateTable: dynamoStack.stateTable,
+  boilerUsageTable: dynamoStack.boilerUsageTable,
   description: `HTTP API Gateway for nakostat web dashboard (${deployEnv})`,
 });
 
@@ -76,6 +77,10 @@ const webStack = new WebStack(app, 'NakostatWebStack', {
   crossRegionReferences: true,
   description: `CloudFront + S3 SPA hosting and Cognito client for nakostat (${deployEnv})`,
 });
+
+// ApiStack's JWT authoriser reads the nakostat Cognito client ID that WebStack
+// publishes to SSM, so WebStack must deploy before ApiStack.
+apiStack.addDependency(webStack);
 
 new GithubCiStack(app, 'NakostatGithubCiStack', {
   ...londonEnv,
