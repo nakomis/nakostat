@@ -6,4 +6,11 @@ describe('App', () => {
     render(<App />);
     expect(screen.getByRole('heading', { name: 'Nakostat' })).toBeInTheDocument();
   });
+
+  it('renders themed shadcn components', () => {
+    render(<App />);
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
+    expect(screen.getByText('Boiler On')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument();
+  });
 });

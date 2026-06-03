@@ -1,73 +1,63 @@
-# React + TypeScript + Vite
+# Nakostat web dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React SPA for the Nakostat thermostat, served from S3 + CloudFront.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+| Concern | Tool |
+|---------|------|
+| Build / dev server | **Vite 8** |
+| Framework | **React 19** |
+| Language | **TypeScript 6** (`strict`) |
+| Styling | **Tailwind CSS v4** (`@tailwindcss/vite`, CSS-first config) |
+| Components | **shadcn/ui** (Radix primitives, owned in-repo) |
+| Validation | **zod 4** |
+| Tests | **Vitest 4** + Testing Library (jsdom) |
+| Lint / format | **Biome 2** |
 
-## React Compiler
+## Commands
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run dev        # Vite dev server
+npm run build      # tsc -b + vite build → dist/
+npm test           # Vitest run + coverage (70% line gate)
+npm run test:watch # Vitest watch mode
+npm run lint       # Biome check (lint + format)
+npm run format     # Biome format --write
+npm run typecheck  # tsc -b
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Folder & component conventions
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
 ```
+src/
+├── components/
+│   ├── ui/        shadcn/ui primitives — VENDORED, do not hand-edit
+│   └── …          app components (composed from ui/ primitives)
+├── lib/
+│   └── utils.ts   cn() helper (clsx + tailwind-merge)
+├── test/
+│   └── setup.ts   Vitest + jest-dom setup
+├── App.tsx
+├── main.tsx       app entry; imports index.css
+└── index.css      Tailwind import + theme tokens (light/dark)
+```
+
+- **`@/` aliases `src/`** — import as `@/components/ui/button`, `@/lib/utils`. Configured in `vite.config.ts`, `tsconfig.*.json`, and `components.json`.
+- **`src/components/ui/**` is owned but treated as vendored.** Add/update primitives with the CLI (`npx shadcn@latest add <name>`), don't hand-format them. Biome skips this folder (`biome.json` override) and it's excluded from coverage so regenerating a component never fights the linter or the gate.
+- **App components** (everything outside `ui/`) are linted, formatted, and expected to carry tests.
+- **Dark by default:** `<html class="dark">` in `index.html`. Theme tokens live in `index.css` (`:root` / `.dark`).
+
+## Adding a shadcn component
+
+```bash
+npx shadcn@latest add dialog
+```
+
+> ⚠️ **Lockfile / Nexus gotcha:** running `npm install` (directly or via the
+> shadcn CLI) on a machine configured for the home Nexus proxy rewrites
+> `package-lock.json` `resolved:` URLs to `packages.home.nakomis.com`, which
+> 401s in CI (no mTLS client cert). After any install, reset them:
+> ```bash
+> sed -i '' 's|https://packages.home.nakomis.com/repository/npm-proxy/|https://registry.npmjs.org/|g' package-lock.json
+> ```
