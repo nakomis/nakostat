@@ -14,18 +14,23 @@ React SPA for the Nakostat thermostat, served from S3 + CloudFront.
 | Validation | **zod 4** |
 | Tests | **Vitest 4** + Testing Library (jsdom) |
 | Lint / format | **Biome 2** |
+| Package manager | **pnpm** (pinned via `packageManager` in `package.json`) |
 
 ## Commands
 
 ```bash
-npm run dev        # Vite dev server
-npm run build      # tsc -b + vite build → dist/
-npm test           # Vitest run + coverage (70% line gate)
-npm run test:watch # Vitest watch mode
-npm run lint       # Biome check (lint + format)
-npm run format     # Biome format --write
-npm run typecheck  # tsc -b
+pnpm install       # install deps (pnpm i)
+pnpm dev           # Vite dev server
+pnpm build         # tsc -b + vite build → dist/
+pnpm test          # Vitest run + coverage (70% line gate)
+pnpm test:watch    # Vitest watch mode
+pnpm lint          # Biome check (lint + format)
+pnpm format        # Biome format --write
+pnpm typecheck     # tsc -b
 ```
+
+> First time? `pnpm` is installed via `corepack` (or `npm i -g pnpm`); the exact
+> version is pinned in `package.json`'s `packageManager` field.
 
 ## Folder & component conventions
 
@@ -51,13 +56,27 @@ src/
 ## Adding a shadcn component
 
 ```bash
-npx shadcn@latest add dialog
+pnpm dlx shadcn@latest add dialog
 ```
 
-> ⚠️ **Lockfile / Nexus gotcha:** running `npm install` (directly or via the
-> shadcn CLI) on a machine configured for the home Nexus proxy rewrites
-> `package-lock.json` `resolved:` URLs to `packages.home.nakomis.com`, which
-> 401s in CI (no mTLS client cert). After any install, reset them:
-> ```bash
-> sed -i '' 's|https://packages.home.nakomis.com/repository/npm-proxy/|https://registry.npmjs.org/|g' package-lock.json
-> ```
+## Registry & lockfile
+
+This project uses **pnpm** specifically so the lockfile stays registry-agnostic.
+
+`pnpm-lock.yaml` records each package as `resolution: {integrity: <sha512>}` —
+an integrity hash and version, **no hostname**. The registry is chosen from
+config at install time:
+
+- **Locally**, your global `~/.npmrc` points pnpm at the home Nexus proxy
+  (`packages.home.nakomis.com`), so installs are served and cached from Nexus.
+- **In CI**, there's no `~/.npmrc`, so pnpm resolves from `registry.npmjs.org`.
+
+Both produce the *same* tree from the *same* committed lockfile — Nexus is a
+byte-identical proxy of npmjs, so the integrity hashes match either way.
+
+> This is why we don't use npm here. npm bakes the absolute `resolved:` URL
+> (host **and** `/repository/npm-proxy/` path) into `package-lock.json`, so a
+> lockfile generated against Nexus 401s in CI (no mTLS client cert). The old
+> workaround was a manual `sed` to rewrite the host after every install; pnpm
+> removes the problem entirely. `replace-registry-host` doesn't help — it swaps
+> only the host, leaving Nexus's path, which 404s on npmjs.
