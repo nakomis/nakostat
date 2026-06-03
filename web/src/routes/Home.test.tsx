@@ -7,6 +7,11 @@ vi.mock('react-oidc-context', () => ({
   useAuth: vi.fn(),
 }));
 
+// Stub the live panel — Home's job is routing, not data fetching.
+vi.mock('@/components/CurrentStatePanel', () => ({
+  default: () => <div>panel</div>,
+}));
+
 const mockUseAuth = vi.mocked(useAuth);
 
 function authState(overrides: Record<string, unknown>) {
