@@ -25,6 +25,7 @@ export default defineConfig({
         'src/**/*.test.{ts,tsx}',
         'src/test/**',
         'src/main.tsx',
+        'src/router.tsx',
         'src/vite-env.d.ts',
         'src/components/ui/**',
       ],

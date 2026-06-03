@@ -10,15 +10,19 @@ import {
 } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 
-function App() {
+/**
+ * Placeholder dashboard. The live data panel (GET /state via TanStack Query)
+ * lands in STAT-56.
+ */
+function Dashboard() {
   return (
     <main className="mx-auto max-w-2xl p-8">
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight">Nakostat</h1>
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight">Dashboard</h1>
 
       <Card>
         <CardHeader>
           <CardTitle>Current State</CardTitle>
-          <CardDescription>Thermostat dashboard — rebuilt on Vite.</CardDescription>
+          <CardDescription>Live data coming soon.</CardDescription>
           <CardAction>
             <Badge variant="secondary">auto</Badge>
           </CardAction>
@@ -36,4 +40,4 @@ function App() {
   );
 }
 
-export default App;
+export default Dashboard;

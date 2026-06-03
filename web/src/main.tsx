@@ -1,6 +1,9 @@
+import { RouterProvider } from '@tanstack/react-router';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App';
+import { AuthProvider } from 'react-oidc-context';
+import { oidcConfig } from '@/lib/auth';
+import { router } from '@/router';
 import './index.css';
 
 const rootElement = document.getElementById('root');
@@ -10,6 +13,8 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <AuthProvider {...oidcConfig}>
+      <RouterProvider router={router} />
+    </AuthProvider>
   </StrictMode>,
 );

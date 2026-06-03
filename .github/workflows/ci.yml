@@ -238,6 +238,14 @@ jobs:
         working-directory: web
         run: npm run lint
 
+      # config.json holds real per-env values (gitignored, written by
+      # set-config.sh on deploy). The lint/test/build job has no AWS access, so
+      # seed a placeholder from the committed template purely to satisfy the
+      # `import './config.json'` that config.ts performs at test and build time.
+      - name: Seed placeholder config
+        working-directory: web
+        run: cp src/config/config.json.template src/config/config.json
+
       - name: Unit + component tests with coverage
         working-directory: web
         run: npm test
