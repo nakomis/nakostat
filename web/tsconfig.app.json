@@ -15,6 +15,9 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* Path alias (shadcn/ui) */
+    "paths": { "@/*": ["./src/*"] },
+
     /* Strictness */
     "strict": true,
 
