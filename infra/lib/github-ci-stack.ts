@@ -32,8 +32,23 @@ export class GithubCiStack extends cdk.Stack {
           StringEquals: {
             'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
           },
+          // GitHub now issues OIDC subjects carrying immutable numeric ids:
+          //   repo:OWNER@OWNER_ID/REPO@REPO_ID:CONTEXT
+          // rather than the older repo:OWNER/REPO:CONTEXT. A condition pinned to
+          // names alone silently stops matching, and the symptom is an opaque
+          // "Not authorized to perform sts:AssumeRoleWithWebIdentity" after
+          // roughly two minutes of retries — with the role, the provider
+          // audience and the workflow variable all looking perfectly correct.
+          //
+          // The ids are the point: they survive a rename, where a policy pinned
+          // only to names can be inherited by whoever claims the name next.
+          // A list is an OR; the legacy form is kept because it is still emitted
+          // in some contexts and the names are pinned either way.
           StringLike: {
-            'token.actions.githubusercontent.com:sub': 'repo:nakomis/nakostat:*',
+            'token.actions.githubusercontent.com:sub': [
+              'repo:nakomis@1488244/nakostat@1220064545:*',
+              'repo:nakomis/nakostat:*',
+            ],
           },
         },
       ),
