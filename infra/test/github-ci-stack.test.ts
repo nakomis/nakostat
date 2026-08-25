@@ -50,7 +50,13 @@ describe('GithubCiStack', () => {
                 'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
               },
               StringLike: {
-                'token.actions.githubusercontent.com:sub': 'repo:nakomis/nakostat:*',
+                // Both subject formats. GitHub moved to immutable ids
+                // (repo:OWNER@ID/REPO@ID:CONTEXT) and a policy pinned only to
+                // names silently stops matching — an opaque AssumeRole denial.
+                'token.actions.githubusercontent.com:sub': [
+                  'repo:nakomis@1488244/nakostat@1220064545:*',
+                  'repo:nakomis/nakostat:*',
+                ],
               },
             },
           }),
