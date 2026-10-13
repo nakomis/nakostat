@@ -13,5 +13,8 @@
   },
   "api": {
     "apiUrl": "<API_URL>"
+  },
+  "deploymentTracker": {
+    "trackerUrl": "https://api.infra.nakomis.com"
   }
 }
