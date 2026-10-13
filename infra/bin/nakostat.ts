@@ -12,7 +12,7 @@ import { WebStack } from '../lib/web-stack';
 const npmEnvironment = process.env.NPM_ENVIRONMENT;
 if (!npmEnvironment) {
   throw new Error(
-    'NPM_ENVIRONMENT is not set. Use `npm run deploy-sandbox` or `npm run deploy-prod`.',
+    'NPM_ENVIRONMENT is not set. Use `pnpm run deploy-sandbox` or `pnpm run deploy-prod`.',
   );
 }
 if (npmEnvironment !== 'sandbox' && npmEnvironment !== 'prod') {
@@ -80,7 +80,7 @@ const webStack = new WebStack(app, 'NakostatWebStack', {
 
 // ApiStack's JWT authoriser reads the nakostat Cognito client ID that WebStack
 // publishes to SSM, so WebStack must deploy before ApiStack.
-apiStack.addDependency(webStack);
+apiStack.addStackDependency(webStack);
 
 new GithubCiStack(app, 'NakostatGithubCiStack', {
   ...londonEnv,
