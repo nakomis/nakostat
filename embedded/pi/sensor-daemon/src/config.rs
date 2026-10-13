@@ -148,12 +148,16 @@ path = "/run/nakostat/sensor.sock"
     fn env_var_overrides_mqtt_endpoint() {
         let _guard = ENV_LOCK.lock().unwrap();
         let (_f, path) = write_toml(VALID_TOML);
-        std::env::set_var(
-            "NAKOSTAT_MQTT_ENDPOINT",
-            "override.iot.eu-west-1.amazonaws.com",
-        );
+        // SAFETY: ENV_LOCK serialises every test that touches the environment.
+        unsafe {
+            std::env::set_var(
+                "NAKOSTAT_MQTT_ENDPOINT",
+                "override.iot.eu-west-1.amazonaws.com",
+            )
+        };
         let cfg = Config::from_file(&path).unwrap();
-        std::env::remove_var("NAKOSTAT_MQTT_ENDPOINT");
+        // SAFETY: ENV_LOCK serialises every test that touches the environment.
+        unsafe { std::env::remove_var("NAKOSTAT_MQTT_ENDPOINT") };
         assert_eq!(cfg.mqtt.endpoint, "override.iot.eu-west-1.amazonaws.com");
     }
 
@@ -161,9 +165,11 @@ path = "/run/nakostat/sensor.sock"
     fn env_var_overrides_publish_interval() {
         let _guard = ENV_LOCK.lock().unwrap();
         let (_f, path) = write_toml(VALID_TOML);
-        std::env::set_var("NAKOSTAT_SENSOR_PUBLISH_INTERVAL_S", "60");
+        // SAFETY: ENV_LOCK serialises every test that touches the environment.
+        unsafe { std::env::set_var("NAKOSTAT_SENSOR_PUBLISH_INTERVAL_S", "60") };
         let cfg = Config::from_file(&path).unwrap();
-        std::env::remove_var("NAKOSTAT_SENSOR_PUBLISH_INTERVAL_S");
+        // SAFETY: ENV_LOCK serialises every test that touches the environment.
+        unsafe { std::env::remove_var("NAKOSTAT_SENSOR_PUBLISH_INTERVAL_S") };
         assert_eq!(cfg.sensor.publish_interval_s, 60);
     }
 
@@ -171,9 +177,11 @@ path = "/run/nakostat/sensor.sock"
     fn env_var_overrides_socket_path() {
         let _guard = ENV_LOCK.lock().unwrap();
         let (_f, path) = write_toml(VALID_TOML);
-        std::env::set_var("NAKOSTAT_SOCKET_PATH", "/tmp/test.sock");
+        // SAFETY: ENV_LOCK serialises every test that touches the environment.
+        unsafe { std::env::set_var("NAKOSTAT_SOCKET_PATH", "/tmp/test.sock") };
         let cfg = Config::from_file(&path).unwrap();
-        std::env::remove_var("NAKOSTAT_SOCKET_PATH");
+        // SAFETY: ENV_LOCK serialises every test that touches the environment.
+        unsafe { std::env::remove_var("NAKOSTAT_SOCKET_PATH") };
         assert_eq!(cfg.socket.path, "/tmp/test.sock");
     }
 

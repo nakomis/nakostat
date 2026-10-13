@@ -1,7 +1,8 @@
 [package]
 name = "nakostat"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.85"
 
 [[bin]]
 name = "nakostat"
@@ -13,23 +14,26 @@ default = []
 real-sensor = ["linux-embedded-hal", "ens160", "aht20-driver"]
 
 [dependencies]
-anyhow = "1"
-chrono = { version = "0.4", features = ["serde"] }
-rumqttc = { version = "0.25", features = ["use-rustls"] }
-rustls = { version = "0.23", default-features = false, features = ["ring"] }
-rustls-pemfile = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tokio = { version = "1", features = ["full"] }
-toml = "0.8"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-webpki-roots = "0.26"
+anyhow = "1.0.104"
+chrono = { version = "0.4.45", features = ["serde"] }
+rumqttc = { version = "0.25.1", features = ["use-rustls"] }
+rustls = { version = "0.23.45", default-features = false, features = ["ring"] }
+rustls-pemfile = "2.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tokio = { version = "1.53.2", features = ["full"] }
+toml = "1.1"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+webpki-roots = "1.0"
 
 # Real I²C sensor drivers — only needed on Pi
-linux-embedded-hal = { version = "0.4", optional = true }
-ens160 = { version = "0.3", optional = true }
-aht20-driver = { version = "2", optional = true }
+# Only the I²C backend is used; skipping the serial/GPIO/SPI defaults avoids
+# pulling in libudev, which would need a cross pkg-config sysroot.
+linux-embedded-hal = { version = "0.5", default-features = false, features = ["i2c"], optional = true }
+ens160 = { version = "0.6", optional = true }
+# The default `use-defmt` feature needs a defmt logger, which Linux does not provide.
+aht20-driver = { version = "2", default-features = false, optional = true }
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = "3.27"
