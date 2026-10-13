@@ -66,5 +66,31 @@ export class IotRulesStack extends cdk.Stack {
         awsIotSqlVersion: '2016-03-23',
       },
     });
+
+    // Setpoint changes from the Pish touch display's dial. Applied to the
+    // state table exactly as the setpoint API does.
+    const pishSetpointHandler = new nodejs.NodejsFunction(this, 'PishSetpointHandler', {
+      entry: path.join(__dirname, '../lambda/iot-rules/pish-setpoint-handler.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      environment: { STATE_TABLE_NAME: stateTable.tableName },
+      bundling: { externalModules: [] },
+    });
+    stateTable.grantWriteData(pishSetpointHandler);
+
+    pishSetpointHandler.addPermission('IoTInvokePishSetpoint', {
+      principal: new iam.ServicePrincipal('iot.amazonaws.com'),
+      sourceAccount: this.account,
+    });
+
+    new iot.CfnTopicRule(this, 'PishSetpointRule', {
+      ruleName: `nakostat_pish_setpoint_${deployEnv}`,
+      topicRulePayload: {
+        sql: `SELECT * FROM 'nakostat/${deployEnv}/pish/setpoint'`,
+        actions: [{ lambda: { functionArn: pishSetpointHandler.functionArn } }],
+        ruleDisabled: false,
+        awsIotSqlVersion: '2016-03-23',
+      },
+    });
   }
 }
