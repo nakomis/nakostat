@@ -16,6 +16,7 @@
   "context": {
     "@aws-cdk/aws-iam:minimizePolicies": true,
     "@aws-cdk/core:enablePartitionLiterals": true,
-    "@aws-cdk/aws-s3:publicAccessBlockedByDefault": true
+    "@aws-cdk/aws-s3:publicAccessBlockedByDefault": true,
+    "@aws-cdk/core:defaultCrossStackReferences": "strong"
   }
 }

@@ -1,0 +1,23 @@
+# pnpm settings for the infra package. Not a real workspace (single package) —
+# this file exists only to hold pnpm's overrides and supply-chain settings.
+
+# @aws-sdk/xml-builder 3.972.20+ depends on @nodable/entities, which is pure ESM
+# with no CJS build and breaks Jest's CJS runner ('Unexpected token export').
+# Pin to the last version without it (see NAKO-35).
+overrides:
+  '@aws-sdk/xml-builder': 3.972.19
+
+# pnpm does NOT run dependency build/postinstall scripts unless explicitly
+# allowed here (secure default). Both of these are Jest 30 internals that ship
+# prebuilt native binaries as optional dependencies; their install scripts are
+# only a fallback build, so they stay off.
+allowBuilds:
+  '@parcel/watcher': false
+  unrs-resolver: false
+
+# minimumReleaseAge: refuse to resolve a version published less than this many
+# minutes ago — a defence against installing a package in the window just after
+# it's been compromised/republished. 1440 = 24h.
+# CI installs with --frozen-lockfile, so this only affects local dependency
+# updates, never reproducible installs.
+minimumReleaseAge: 1440
