@@ -1,7 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
+import { Match, Template } from 'aws-cdk-lib/assertions';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as s3 from 'aws-cdk-lib/aws-s3';
-import { Match, Template } from 'aws-cdk-lib/assertions';
 import { GithubCiStack } from '../lib/github-ci-stack';
 
 const OIDC_ARN = 'arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com';
@@ -14,13 +14,20 @@ function makeStack(deployEnv: 'sandbox' | 'prod' = 'sandbox', withWebProps = fal
     env: { account: '123456789012', region: 'eu-west-2' },
     deployEnv,
     githubOidcProviderArn: OIDC_ARN,
-    ...(withWebProps ? {
-      webBucket: s3.Bucket.fromBucketArn(new cdk.Stack(app, 'BucketStack'), 'Bucket', BUCKET_ARN),
-      webDistribution: cloudfront.Distribution.fromDistributionAttributes(
-        new cdk.Stack(app, 'CfStack'), 'Dist',
-        { distributionId: DISTRIBUTION_ID, domainName: 'abc.cloudfront.net' },
-      ),
-    } : {}),
+    ...(withWebProps
+      ? {
+          webBucket: s3.Bucket.fromBucketArn(
+            new cdk.Stack(app, 'BucketStack'),
+            'Bucket',
+            BUCKET_ARN,
+          ),
+          webDistribution: cloudfront.Distribution.fromDistributionAttributes(
+            new cdk.Stack(app, 'CfStack'),
+            'Dist',
+            { distributionId: DISTRIBUTION_ID, domainName: 'abc.cloudfront.net' },
+          ),
+        }
+      : {}),
   });
   return Template.fromStack(stack);
 }
@@ -77,6 +84,28 @@ describe('GithubCiStack', () => {
                 Resource: Match.stringLikeRegexp('cdk-hnb659fds-\\*'),
               }),
             ]),
+          },
+        }),
+      ]),
+    });
+  });
+
+  test('role may invoke the shared deployment tracker in the prod account', () => {
+    // The tracker is a REST API in the prod account, so the sandbox role calls it
+    // cross-account: the tracker's resource-policy allow-list is not enough on
+    // its own, the role's identity policy must grant execute-api:Invoke too.
+    sandboxTemplate.hasResourceProperties('AWS::IAM::Role', {
+      Policies: Match.arrayWith([
+        Match.objectLike({
+          PolicyName: 'DeploymentTracker',
+          PolicyDocument: {
+            Statement: [
+              Match.objectLike({
+                Effect: 'Allow',
+                Action: 'execute-api:Invoke',
+                Resource: 'arn:aws:execute-api:eu-west-2:637423226886:*/*/*/deployments/*',
+              }),
+            ],
           },
         }),
       ]),

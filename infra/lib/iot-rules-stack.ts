@@ -1,11 +1,11 @@
 import * as cdk from 'aws-cdk-lib';
-import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import type * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as iot from 'aws-cdk-lib/aws-iot';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
+import type { Construct } from 'constructs';
 import * as path from 'path';
-import { Construct } from 'constructs';
 
 export interface IotRulesStackProps extends cdk.StackProps {
   deployEnv: 'sandbox' | 'prod';

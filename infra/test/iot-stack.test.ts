@@ -176,9 +176,7 @@ describe('IotStack — sandbox', () => {
         Statement: Match.arrayWith([
           Match.objectLike({
             Action: Match.arrayWith(['ssm:PutParameter', 'ssm:DeleteParameter']),
-            Resource: Match.arrayWith([
-              Match.stringLikeRegexp('/nakostat/sandbox/pi/certPem'),
-            ]),
+            Resource: Match.arrayWith([Match.stringLikeRegexp('/nakostat/sandbox/pi/certPem')]),
           }),
         ]),
       },

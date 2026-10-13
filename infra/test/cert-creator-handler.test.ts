@@ -1,23 +1,26 @@
-import { mockClient } from 'aws-sdk-client-mock';
 import {
-  IoTClient,
-  CreateKeysAndCertificateCommand,
-  AttachThingPrincipalCommand,
-  DetachThingPrincipalCommand,
-  UpdateCertificateCommand,
-  DeleteCertificateCommand,
   AttachPolicyCommand,
+  AttachThingPrincipalCommand,
+  CreateKeysAndCertificateCommand,
+  DeleteCertificateCommand,
   DetachPolicyCommand,
+  DetachThingPrincipalCommand,
+  IoTClient,
   ListCertificatesCommand,
+  UpdateCertificateCommand,
 } from '@aws-sdk/client-iot';
-import {
-  SSMClient,
-  PutParameterCommand,
-  DeleteParameterCommand,
-} from '@aws-sdk/client-ssm';
+import { DeleteParameterCommand, PutParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
+import { mockClient } from 'aws-sdk-client-mock';
 
 // Must import after mock setup
-import { iotClient, ssmClient, handler, onCreate, onDelete, getCertArn } from '../lambda/cert-creator/index';
+import {
+  getCertArn,
+  handler,
+  iotClient,
+  onCreate,
+  onDelete,
+  ssmClient,
+} from '../lambda/cert-creator/index';
 
 const iotMock = mockClient(iotClient);
 const ssmMock = mockClient(ssmClient);
@@ -36,14 +39,14 @@ beforeEach(() => {
 
 describe('onCreate', () => {
   test('creates certificate, stores in SSM, attaches to thing and policy', async () => {
-    iotMock
-      .on(CreateKeysAndCertificateCommand)
-      .resolves({
-        certificateId: 'cert-id-123',
-        certificateArn: 'arn:aws:iot:eu-west-2:123:cert/cert-id-123',
-        certificatePem: '-----BEGIN CERTIFICATE-----\nPEM\n-----END CERTIFICATE-----',
-        keyPair: { PrivateKey: '-----BEGIN RSA PRIVATE KEY-----\nKEY\n-----END RSA PRIVATE KEY-----' },
-      });
+    iotMock.on(CreateKeysAndCertificateCommand).resolves({
+      certificateId: 'cert-id-123',
+      certificateArn: 'arn:aws:iot:eu-west-2:123:cert/cert-id-123',
+      certificatePem: '-----BEGIN CERTIFICATE-----\nPEM\n-----END CERTIFICATE-----',
+      keyPair: {
+        PrivateKey: '-----BEGIN RSA PRIVATE KEY-----\nKEY\n-----END RSA PRIVATE KEY-----',
+      },
+    });
     iotMock.on(AttachPolicyCommand).resolves({});
     iotMock.on(AttachThingPrincipalCommand).resolves({});
     ssmMock.on(PutParameterCommand).resolves({});
@@ -61,7 +64,12 @@ describe('onCreate', () => {
 describe('onDelete', () => {
   test('detaches, deactivates, and deletes cert; deletes SSM params', async () => {
     iotMock.on(ListCertificatesCommand).resolves({
-      certificates: [{ certificateId: 'cert-id-123', certificateArn: 'arn:aws:iot:eu-west-2:123:cert/cert-id-123' }],
+      certificates: [
+        {
+          certificateId: 'cert-id-123',
+          certificateArn: 'arn:aws:iot:eu-west-2:123:cert/cert-id-123',
+        },
+      ],
     });
     iotMock.on(DetachThingPrincipalCommand).resolves({});
     iotMock.on(DetachPolicyCommand).resolves({});
@@ -102,7 +110,10 @@ describe('handler dispatch', () => {
     iotMock.on(AttachThingPrincipalCommand).resolves({});
     ssmMock.on(PutParameterCommand).resolves({});
 
-    const result = await handler({ RequestType: 'Create', ResourceProperties: props as unknown as Record<string, unknown> });
+    const result = await handler({
+      RequestType: 'Create',
+      ResourceProperties: props as unknown as Record<string, unknown>,
+    });
     expect(result.PhysicalResourceId).toBe('cert-abc');
   });
 
@@ -132,7 +143,9 @@ describe('handler dispatch', () => {
 describe('getCertArn', () => {
   test('returns ARN when cert exists', async () => {
     iotMock.on(ListCertificatesCommand).resolves({
-      certificates: [{ certificateId: 'abc', certificateArn: 'arn:aws:iot:eu-west-2:123:cert/abc' }],
+      certificates: [
+        { certificateId: 'abc', certificateArn: 'arn:aws:iot:eu-west-2:123:cert/abc' },
+      ],
     });
     const arn = await getCertArn('abc');
     expect(arn).toBe('arn:aws:iot:eu-west-2:123:cert/abc');

@@ -1,10 +1,10 @@
 import * as cdk from 'aws-cdk-lib';
-import * as cr from 'aws-cdk-lib/custom-resources';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
-import * as path from 'path';
+import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
+import * as path from 'path';
 
 export interface CertCreatorProps {
   /** IoT Thing name the certificate will be attached to. */
@@ -34,30 +34,31 @@ export class CertCreator extends Construct {
       },
     });
 
-    fn.addToRolePolicy(new iam.PolicyStatement({
-      actions: [
-        'iot:CreateKeysAndCertificate',
-        'iot:AttachThingPrincipal',
-        'iot:DetachThingPrincipal',
-        'iot:AttachPolicy',
-        'iot:DetachPolicy',
-        'iot:UpdateCertificate',
-        'iot:DeleteCertificate',
-        'iot:ListCertificates',
-      ],
-      resources: ['*'],
-    }));
+    fn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'iot:CreateKeysAndCertificate',
+          'iot:AttachThingPrincipal',
+          'iot:DetachThingPrincipal',
+          'iot:AttachPolicy',
+          'iot:DetachPolicy',
+          'iot:UpdateCertificate',
+          'iot:DeleteCertificate',
+          'iot:ListCertificates',
+        ],
+        resources: ['*'],
+      }),
+    );
 
-    fn.addToRolePolicy(new iam.PolicyStatement({
-      actions: [
-        'ssm:PutParameter',
-        'ssm:DeleteParameter',
-      ],
-      resources: [
-        `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${props.certPemPath}`,
-        `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${props.privKeyPath}`,
-      ],
-    }));
+    fn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['ssm:PutParameter', 'ssm:DeleteParameter'],
+        resources: [
+          `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${props.certPemPath}`,
+          `arn:aws:ssm:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:parameter${props.privKeyPath}`,
+        ],
+      }),
+    );
 
     const provider = new cr.Provider(this, 'Provider', {
       onEventHandler: fn,
