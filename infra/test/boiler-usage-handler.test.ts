@@ -1,7 +1,7 @@
-import { mockClient } from 'aws-sdk-client-mock';
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { type APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import { mockClient } from 'aws-sdk-client-mock';
 import { handler } from '../lambda/api/boiler-usage-handler';
-import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 
 const dynamoMock = mockClient(DynamoDBDocumentClient);
 
@@ -16,10 +16,11 @@ describe('boiler-usage handler', () => {
     requestContext: {},
   } as unknown as APIGatewayProxyEventV2;
 
-  const mockEvent = (queryStringParameters?: Record<string, string>) => ({
-    ...baseEvent,
-    queryStringParameters,
-  } as unknown as APIGatewayProxyEventV2);
+  const mockEvent = (queryStringParameters?: Record<string, string>) =>
+    ({
+      ...baseEvent,
+      queryStringParameters,
+    }) as unknown as APIGatewayProxyEventV2;
 
   test('returns events from last 30 days by default', async () => {
     const now = new Date();
@@ -56,8 +57,12 @@ describe('boiler-usage handler', () => {
 
     expect(result.statusCode).toBe(200);
     const queryCall = dynamoMock.commandCalls(QueryCommand)[0]!;
-    expect(queryCall.args[0].input.ExpressionAttributeValues![':from']).toBe(new Date(from).toISOString());
-    expect(queryCall.args[0].input.ExpressionAttributeValues![':to']).toBe(new Date(to).toISOString());
+    expect(queryCall.args[0].input.ExpressionAttributeValues![':from']).toBe(
+      new Date(from).toISOString(),
+    );
+    expect(queryCall.args[0].input.ExpressionAttributeValues![':to']).toBe(
+      new Date(to).toISOString(),
+    );
   });
 
   test('returns 400 if from date is invalid', async () => {
@@ -73,10 +78,12 @@ describe('boiler-usage handler', () => {
   });
 
   test('returns 400 if from is after to', async () => {
-    const result = (await handler(mockEvent({
-      from: '2026-04-30T00:00:00Z',
-      to: '2026-04-01T00:00:00Z',
-    }))) as any;
+    const result = (await handler(
+      mockEvent({
+        from: '2026-04-30T00:00:00Z',
+        to: '2026-04-01T00:00:00Z',
+      }),
+    )) as any;
     expect(result.statusCode).toBe(400);
     expect(result.body).toContain('from date must be before to date');
   });

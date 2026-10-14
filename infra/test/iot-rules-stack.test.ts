@@ -95,7 +95,7 @@ describe('IotRulesStack — prod', () => {
   test('Pi readings rule targets prod topic', () => {
     template.hasResourceProperties('AWS::IoT::TopicRule', {
       TopicRulePayload: {
-        Sql: Match.stringLikeRegexp("nakostat/prod/pi/readings"),
+        Sql: Match.stringLikeRegexp('nakostat/prod/pi/readings'),
       },
     });
   });
@@ -103,7 +103,7 @@ describe('IotRulesStack — prod', () => {
   test('Pish setpoint rule targets prod topic', () => {
     template.hasResourceProperties('AWS::IoT::TopicRule', {
       TopicRulePayload: {
-        Sql: Match.stringLikeRegexp("nakostat/prod/pish/setpoint"),
+        Sql: Match.stringLikeRegexp('nakostat/prod/pish/setpoint'),
       },
     });
   });
@@ -111,7 +111,7 @@ describe('IotRulesStack — prod', () => {
   test('ESP32 status rule targets prod topic', () => {
     template.hasResourceProperties('AWS::IoT::TopicRule', {
       TopicRulePayload: {
-        Sql: Match.stringLikeRegexp("nakostat/prod/esp32/status"),
+        Sql: Match.stringLikeRegexp('nakostat/prod/esp32/status'),
       },
     });
   });

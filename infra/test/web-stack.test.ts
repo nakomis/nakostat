@@ -1,13 +1,16 @@
 import * as cdk from 'aws-cdk-lib';
-import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import { Match, Template } from 'aws-cdk-lib/assertions';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import { WebStack } from '../lib/web-stack';
 
-const MOCK_CERT_ARN = 'arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000';
+const MOCK_CERT_ARN =
+  'arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000';
 
 function makeStack(deployEnv: 'sandbox' | 'prod' = 'sandbox') {
   const app = new cdk.App();
-  const certStack = new cdk.Stack(app, 'CertStack', { env: { account: '123456789012', region: 'us-east-1' } });
+  const certStack = new cdk.Stack(app, 'CertStack', {
+    env: { account: '123456789012', region: 'us-east-1' },
+  });
   const mockCert = acm.Certificate.fromCertificateArn(certStack, 'MockCert', MOCK_CERT_ARN);
   const stack = new WebStack(app, 'TestWebStack', {
     env: { account: '123456789012', region: 'eu-west-2' },
@@ -91,8 +94,14 @@ describe('WebStack — sandbox', () => {
     template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
       ClientName: 'nakostat-sandbox',
       GenerateSecret: false,
-      CallbackURLs: Match.arrayWith(['https://nakostat.sandbox.nakomis.com/loggedin', 'http://localhost:3000/loggedin']),
-      LogoutURLs: Match.arrayWith(['https://nakostat.sandbox.nakomis.com/logout', 'http://localhost:3000/logout']),
+      CallbackURLs: Match.arrayWith([
+        'https://nakostat.sandbox.nakomis.com/loggedin',
+        'http://localhost:3000/loggedin',
+      ]),
+      LogoutURLs: Match.arrayWith([
+        'https://nakostat.sandbox.nakomis.com/logout',
+        'http://localhost:3000/logout',
+      ]),
     });
   });
 

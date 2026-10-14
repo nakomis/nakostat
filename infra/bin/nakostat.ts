@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
 import * as fs from 'fs';
-import { IotStack } from '../lib/iot-stack';
-import { GithubCiStack } from '../lib/github-ci-stack';
-import { DynamoStack } from '../lib/dynamo-stack';
-import { IotRulesStack } from '../lib/iot-rules-stack';
 import { ApiStack } from '../lib/api-stack';
+import { DynamoStack } from '../lib/dynamo-stack';
+import { GithubCiStack } from '../lib/github-ci-stack';
+import { IotRulesStack } from '../lib/iot-rules-stack';
+import { IotStack } from '../lib/iot-stack';
 import { WebCertStack } from '../lib/web-cert-stack';
 import { WebStack } from '../lib/web-stack';
 
@@ -16,9 +16,7 @@ if (!npmEnvironment) {
   );
 }
 if (npmEnvironment !== 'sandbox' && npmEnvironment !== 'prod') {
-  throw new Error(
-    `Unknown NPM_ENVIRONMENT "${npmEnvironment}". Must be "sandbox" or "prod".`,
-  );
+  throw new Error(`Unknown NPM_ENVIRONMENT "${npmEnvironment}". Must be "sandbox" or "prod".`);
 }
 
 const deployEnv = npmEnvironment as 'sandbox' | 'prod';

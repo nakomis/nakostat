@@ -71,12 +71,8 @@ describe('DynamoStack — sandbox', () => {
   test('state table has deviceId partition key and no sort key', () => {
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       TableName: 'nakostat-state-sandbox',
-      KeySchema: [
-        { AttributeName: 'deviceId', KeyType: 'HASH' },
-      ],
-      AttributeDefinitions: [
-        { AttributeName: 'deviceId', AttributeType: 'S' },
-      ],
+      KeySchema: [{ AttributeName: 'deviceId', KeyType: 'HASH' }],
+      AttributeDefinitions: [{ AttributeName: 'deviceId', AttributeType: 'S' }],
     });
   });
 
@@ -141,7 +137,10 @@ describe('DynamoStack — sandbox', () => {
 
   test('sandbox tables use DESTROY removal policy', () => {
     const tables = template.findResources('AWS::DynamoDB::Table');
-    for (const table of Object.values(tables) as { UpdateReplacePolicy?: string; DeletionPolicy?: string }[]) {
+    for (const table of Object.values(tables) as {
+      UpdateReplacePolicy?: string;
+      DeletionPolicy?: string;
+    }[]) {
       expect(table.UpdateReplacePolicy).toBe('Delete');
       expect(table.DeletionPolicy).toBe('Delete');
     }
@@ -169,12 +168,17 @@ describe('DynamoStack — prod', () => {
   test('uses prod suffix in table names', () => {
     template.hasResourceProperties('AWS::DynamoDB::Table', { TableName: 'nakostat-readings-prod' });
     template.hasResourceProperties('AWS::DynamoDB::Table', { TableName: 'nakostat-state-prod' });
-    template.hasResourceProperties('AWS::DynamoDB::Table', { TableName: 'nakostat-boiler-usage-prod' });
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'nakostat-boiler-usage-prod',
+    });
   });
 
   test('prod tables use RETAIN removal policy', () => {
     const tables = template.findResources('AWS::DynamoDB::Table');
-    for (const table of Object.values(tables) as { UpdateReplacePolicy?: string; DeletionPolicy?: string }[]) {
+    for (const table of Object.values(tables) as {
+      UpdateReplacePolicy?: string;
+      DeletionPolicy?: string;
+    }[]) {
       expect(table.UpdateReplacePolicy).toBe('Retain');
       expect(table.DeletionPolicy).toBe('Retain');
     }

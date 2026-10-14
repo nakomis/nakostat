@@ -1,6 +1,6 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
-import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -48,24 +48,26 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
   }
 
   try {
-    const result = await client.send(new QueryCommand({
-      TableName: tableName,
-      KeyConditionExpression: 'boilerId = :boilerId AND #ts BETWEEN :from AND :to',
-      ExpressionAttributeNames: {
-        '#ts': 'timestamp',
-      },
-      ExpressionAttributeValues: {
-        ':boilerId': 'esp32',
-        ':from': from.toISOString(),
-        ':to': to.toISOString(),
-      },
-      ScanIndexForward: false,
-    }));
+    const result = await client.send(
+      new QueryCommand({
+        TableName: tableName,
+        KeyConditionExpression: 'boilerId = :boilerId AND #ts BETWEEN :from AND :to',
+        ExpressionAttributeNames: {
+          '#ts': 'timestamp',
+        },
+        ExpressionAttributeValues: {
+          ':boilerId': 'esp32',
+          ':from': from.toISOString(),
+          ':to': to.toISOString(),
+        },
+        ScanIndexForward: false,
+      }),
+    );
 
     let events = (result.Items || []) as BoilerEvent[];
 
     if (sourceFilter) {
-      events = events.filter(e => e.source === sourceFilter);
+      events = events.filter((e) => e.source === sourceFilter);
     }
 
     return {

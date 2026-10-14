@@ -1,19 +1,19 @@
 import {
-  IoTClient,
-  CreateKeysAndCertificateCommand,
-  AttachThingPrincipalCommand,
-  DetachThingPrincipalCommand,
-  UpdateCertificateCommand,
-  DeleteCertificateCommand,
   AttachPolicyCommand,
+  AttachThingPrincipalCommand,
+  CreateKeysAndCertificateCommand,
+  DeleteCertificateCommand,
   DetachPolicyCommand,
+  DetachThingPrincipalCommand,
+  IoTClient,
   ListCertificatesCommand,
+  UpdateCertificateCommand,
 } from '@aws-sdk/client-iot';
 import {
-  SSMClient,
-  PutParameterCommand,
   DeleteParameterCommand,
   ParameterType,
+  PutParameterCommand,
+  SSMClient,
 } from '@aws-sdk/client-ssm';
 
 export const iotClient = new IoTClient({});
@@ -59,50 +59,67 @@ export async function onCreate(props: ResourceProperties): Promise<OnEventRespon
   const privKey = cert.keyPair!.PrivateKey!;
 
   await Promise.all([
-    ssmClient.send(new PutParameterCommand({
-      Name: props.certPemPath,
-      Value: certPem,
-      Type: ParameterType.SECURE_STRING,
-      Overwrite: true,
-    })),
-    ssmClient.send(new PutParameterCommand({
-      Name: props.privKeyPath,
-      Value: privKey,
-      Type: ParameterType.SECURE_STRING,
-      Overwrite: true,
-    })),
-    iotClient.send(new AttachPolicyCommand({
-      policyName: props.policyName,
-      target: certArn,
-    })),
-    iotClient.send(new AttachThingPrincipalCommand({
-      thingName: props.thingName,
-      principal: certArn,
-    })),
+    ssmClient.send(
+      new PutParameterCommand({
+        Name: props.certPemPath,
+        Value: certPem,
+        Type: ParameterType.SECURE_STRING,
+        Overwrite: true,
+      }),
+    ),
+    ssmClient.send(
+      new PutParameterCommand({
+        Name: props.privKeyPath,
+        Value: privKey,
+        Type: ParameterType.SECURE_STRING,
+        Overwrite: true,
+      }),
+    ),
+    iotClient.send(
+      new AttachPolicyCommand({
+        policyName: props.policyName,
+        target: certArn,
+      }),
+    ),
+    iotClient.send(
+      new AttachThingPrincipalCommand({
+        thingName: props.thingName,
+        principal: certArn,
+      }),
+    ),
   ]);
 
   return { PhysicalResourceId: certId };
 }
 
-export async function onDelete(certId: string, props: ResourceProperties): Promise<OnEventResponse> {
+export async function onDelete(
+  certId: string,
+  props: ResourceProperties,
+): Promise<OnEventResponse> {
   const certArn = await getCertArn(certId);
 
   if (certArn) {
     await Promise.all([
-      iotClient.send(new DetachThingPrincipalCommand({
-        thingName: props.thingName,
-        principal: certArn,
-      })),
-      iotClient.send(new DetachPolicyCommand({
-        policyName: props.policyName,
-        target: certArn,
-      })),
+      iotClient.send(
+        new DetachThingPrincipalCommand({
+          thingName: props.thingName,
+          principal: certArn,
+        }),
+      ),
+      iotClient.send(
+        new DetachPolicyCommand({
+          policyName: props.policyName,
+          target: certArn,
+        }),
+      ),
     ]);
 
-    await iotClient.send(new UpdateCertificateCommand({
-      certificateId: certId,
-      newStatus: 'INACTIVE',
-    }));
+    await iotClient.send(
+      new UpdateCertificateCommand({
+        certificateId: certId,
+        newStatus: 'INACTIVE',
+      }),
+    );
 
     await iotClient.send(new DeleteCertificateCommand({ certificateId: certId }));
   }
@@ -117,5 +134,5 @@ export async function onDelete(certId: string, props: ResourceProperties): Promi
 
 export async function getCertArn(certId: string): Promise<string | undefined> {
   const response = await iotClient.send(new ListCertificatesCommand({}));
-  return response.certificates?.find(c => c.certificateId === certId)?.certificateArn;
+  return response.certificates?.find((c) => c.certificateId === certId)?.certificateArn;
 }

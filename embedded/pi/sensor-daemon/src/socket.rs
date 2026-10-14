@@ -53,11 +53,7 @@ async fn serve_client(
         };
         line.push('\n');
 
-        let write_result = timeout(
-            Duration::from_secs(1),
-            stream.write_all(line.as_bytes()),
-        )
-        .await;
+        let write_result = timeout(Duration::from_secs(1), stream.write_all(line.as_bytes())).await;
 
         match write_result {
             Ok(Ok(())) => {}

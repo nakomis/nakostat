@@ -22,20 +22,29 @@ export interface PishSetpointEvent {
 export const handler = async (event: PishSetpointEvent): Promise<void> => {
   const { temperature, userId } = event;
 
-  if (typeof temperature !== 'number' || !Number.isFinite(temperature) || temperature < 0 || temperature > 30) {
+  if (
+    typeof temperature !== 'number' ||
+    !Number.isFinite(temperature) ||
+    temperature < 0 ||
+    temperature > 30
+  ) {
     console.warn('Ignoring Pish setpoint with invalid temperature:', JSON.stringify(event));
     return;
   }
 
-  await client.send(new UpdateCommand({
-    TableName: process.env.STATE_TABLE_NAME!,
-    Key: { deviceId: 'esp32' },
-    UpdateExpression: 'SET setpoint = :temp, setpointUpdatedAt = :timestamp',
-    ExpressionAttributeValues: {
-      ':temp': temperature,
-      ':timestamp': new Date().toISOString(),
-    },
-  }));
+  await client.send(
+    new UpdateCommand({
+      TableName: process.env.STATE_TABLE_NAME!,
+      Key: { deviceId: 'esp32' },
+      UpdateExpression: 'SET setpoint = :temp, setpointUpdatedAt = :timestamp',
+      ExpressionAttributeValues: {
+        ':temp': temperature,
+        ':timestamp': new Date().toISOString(),
+      },
+    }),
+  );
 
-  console.log(`Setpoint ${temperature}°C applied from ${typeof userId === 'string' ? userId : 'Pish display'}`);
+  console.log(
+    `Setpoint ${temperature}°C applied from ${typeof userId === 'string' ? userId : 'Pish display'}`,
+  );
 };

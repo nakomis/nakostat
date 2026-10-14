@@ -54,6 +54,44 @@ A DIY smart thermostat built after the Nest thermostat and Heatlink both failed.
 bash scripts/install-hooks.sh
 ```
 
+## Toolchain versions
+
+Every toolchain is pinned in [`.tool-versions`](.tool-versions), which is the single source of truth for local development and CI:
+
+| Tool | Used by | How CI reads it |
+|------|---------|-----------------|
+| `nodejs` | `infra/`, `web/` | `actions/setup-node` with `node-version-file: .tool-versions` |
+| `pnpm` | `infra/`, `web/` | `pnpm/action-setup` reads `packageManager` in `infra/package.json` and `web/package.json`; the **Toolchain pins** job fails if that disagrees with `.tool-versions` |
+| `python` | PlatformIO (`embedded/esp32/`) | `actions/setup-python` with `python-version-file: .tool-versions` |
+| `rust` | `embedded/pi/sensor-daemon/` | the `rust` line is passed to `dtolnay/rust-toolchain` |
+
+With [asdf](https://asdf-vm.com/) (`nodejs`, `pnpm`, `python` and `rust` plugins) run `asdf install` in the repo root; with [mise](https://mise.jdx.dev/), `mise install`. PlatformIO has no asdf plugin, so it is pinned in [`embedded/esp32/requirements.txt`](embedded/esp32/requirements.txt) and installed into the pinned Python with `pip install -r embedded/esp32/requirements.txt`.
+
+To bump a tool, change `.tool-versions` (and, for pnpm, `packageManager` in `package.json`) in the same PR.
+
+## Lint and format
+
+CI gates every sub-project on lint and formatting as well as tests. Run the same checks locally before pushing:
+
+```bash
+# web/ — Biome lint + format check
+cd web && pnpm lint
+
+# infra/ — type-check, then Biome at the version infra/biome.json declares
+cd infra && pnpm exec tsc --noEmit && pnpm dlx @biomejs/biome@2.4.16 ci .
+# auto-fix formatting and safe lint fixes:
+cd infra && pnpm dlx @biomejs/biome@2.4.16 check --write .
+
+# embedded/pi/sensor-daemon/ — rustfmt + clippy
+cd embedded/pi/sensor-daemon && cargo fmt --check && cargo clippy --all-targets -- -D warnings
+```
+
+Keep the Biome version in `infra/biome.json`'s `$schema` equal to `web/biome.json`'s; the **Toolchain pins** job checks this. The ESP32 firmware has no lint gate yet: it has no `.clang-format`, and `pio check` would download the whole ESP32 toolchain on every run.
+
+## Deployment versions
+
+Infra deploys record their version in the shared nakomis deployment tracker (`api.infra.nakomis.com`, defined in [nakomis-infra](https://github.com/nakomis/nakomis-infra)) under the project key `nakostat-infra`. On a push to `main` the **Compute infra version** job reads the latest sandbox version from the tracker and bumps it — a line that is exactly `--bump-major` or `--bump-minor` in the merged commit message bumps that part, otherwise the patch. The same `infra/version.json` is deployed to sandbox and then prod, and each deploy is recorded after it succeeds. Recording is non-fatal, so a tracker outage never fails a deploy.
+
 ## Related repos
 
 - [`rotary-dial`](https://github.com/nakomis/rotary-dial) — egui thermostat dial widget (migrating into `embedded/pi/`)

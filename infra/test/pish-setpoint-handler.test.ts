@@ -1,5 +1,5 @@
-import { mockClient } from 'aws-sdk-client-mock';
 import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { mockClient } from 'aws-sdk-client-mock';
 import { handler } from '../lambda/iot-rules/pish-setpoint-handler';
 
 const dynamoMock = mockClient(DynamoDBDocumentClient);

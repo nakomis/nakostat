@@ -75,7 +75,11 @@ async fn main() -> Result<()> {
         // TODO(STAT-51): feed this into the hysteresis control loop to drive the
         // relay; the comparison below is indicative logging only (no hysteresis).
         if let Some(setpoint) = schedule.current_setpoint(chrono::Local::now()) {
-            let heat = if reading.temperature_c < setpoint { "ON" } else { "off" };
+            let heat = if reading.temperature_c < setpoint {
+                "ON"
+            } else {
+                "off"
+            };
             info!(
                 "Schedule setpoint {setpoint:.1}°C, measured {:.1}°C → heat {heat}",
                 reading.temperature_c

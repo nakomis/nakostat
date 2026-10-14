@@ -1,7 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
-import { DynamoStack } from '../lib/dynamo-stack';
 import { ApiStack } from '../lib/api-stack';
+import { DynamoStack } from '../lib/dynamo-stack';
 
 function makeStack(deployEnv: 'sandbox' | 'prod' = 'sandbox') {
   const app = new cdk.App();
