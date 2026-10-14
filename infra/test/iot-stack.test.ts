@@ -202,7 +202,9 @@ describe('IotStack — prod', () => {
     template.hasResourceProperties('AWS::IoT::Thing', { ThingName: 'nakostat-pi-prod' });
     template.hasResourceProperties('AWS::IoT::Thing', { ThingName: 'nakostat-esp32-prod' });
     template.hasResourceProperties('AWS::IoT::Policy', { PolicyName: 'nakostat-pi-policy-prod' });
-    template.hasResourceProperties('AWS::IoT::Policy', { PolicyName: 'nakostat-esp32-policy-prod' });
+    template.hasResourceProperties('AWS::IoT::Policy', {
+      PolicyName: 'nakostat-esp32-policy-prod',
+    });
     template.hasResourceProperties('AWS::IoT::Thing', { ThingName: 'nakostat-pish-prod' });
     template.hasResourceProperties('AWS::IoT::Policy', { PolicyName: 'nakostat-pish-policy-prod' });
   });

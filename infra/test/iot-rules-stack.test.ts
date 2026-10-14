@@ -103,7 +103,7 @@ describe('IotRulesStack — prod', () => {
   test('Pish setpoint rule targets prod topic', () => {
     template.hasResourceProperties('AWS::IoT::TopicRule', {
       TopicRulePayload: {
-        Sql: Match.stringLikeRegexp("nakostat/prod/pish/setpoint"),
+        Sql: Match.stringLikeRegexp('nakostat/prod/pish/setpoint'),
       },
     });
   });
