@@ -75,3 +75,10 @@ esac
 
 API_URL=$(aws ssm get-parameter --name "/nakostat/${AWS_ENV}/api/url" --query "Parameter.Value" --output text 2>/dev/null || echo "")
 setValue apiUrl "$API_URL"
+
+# The shared deployment tracker (nakomis-infra) is served from the prod account
+# for every environment; the environment lives in the request path. The template
+# already holds the correct default, so only override it when asked to.
+if [[ -n "${DEPLOYMENT_TRACKER_URL:-}" ]]; then
+  setValue trackerUrl "$DEPLOYMENT_TRACKER_URL"
+fi
