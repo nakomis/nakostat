@@ -1,7 +1,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { IoTDataPlaneClient, PublishCommand } from '@aws-sdk/client-iot-data-plane';
-import { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const iotClient = new IoTDataPlaneClient({});
@@ -61,15 +61,17 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
   const now = new Date().toISOString();
 
   try {
-    await dynamoClient.send(new UpdateCommand({
-      TableName: tableName,
-      Key: { deviceId: 'esp32' },
-      UpdateExpression: 'SET setpoint = :temp, setpointUpdatedAt = :timestamp',
-      ExpressionAttributeValues: {
-        ':temp': temperature,
-        ':timestamp': now,
-      },
-    }));
+    await dynamoClient.send(
+      new UpdateCommand({
+        TableName: tableName,
+        Key: { deviceId: 'esp32' },
+        UpdateExpression: 'SET setpoint = :temp, setpointUpdatedAt = :timestamp',
+        ExpressionAttributeValues: {
+          ':temp': temperature,
+          ':timestamp': now,
+        },
+      }),
+    );
 
     const mqttPayload = {
       temperature,
@@ -77,11 +79,13 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
       userId,
     };
 
-    await iotClient.send(new PublishCommand({
-      topic: `nakostat/${deployEnv}/api/setpoint`,
-      qos: 1,
-      payload: JSON.stringify(mqttPayload),
-    }));
+    await iotClient.send(
+      new PublishCommand({
+        topic: `nakostat/${deployEnv}/api/setpoint`,
+        qos: 1,
+        payload: JSON.stringify(mqttPayload),
+      }),
+    );
 
     return {
       statusCode: 200,

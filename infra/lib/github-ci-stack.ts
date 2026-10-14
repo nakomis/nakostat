@@ -1,8 +1,11 @@
 import * as cdk from 'aws-cdk-lib';
-import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import type * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as iam from 'aws-cdk-lib/aws-iam';
-import * as s3 from 'aws-cdk-lib/aws-s3';
-import { Construct } from 'constructs';
+import type * as s3 from 'aws-cdk-lib/aws-s3';
+import type { Construct } from 'constructs';
+
+/** Account hosting the shared deployment tracker (the nakomis prod account). */
+const DEPLOYMENT_TRACKER_ACCOUNT = '637423226886';
 
 export interface GithubCiStackProps extends cdk.StackProps {
   deployEnv: 'sandbox' | 'prod';
@@ -21,37 +24,36 @@ export class GithubCiStack extends cdk.Stack {
     const { deployEnv, githubOidcProviderArn, webBucket, webDistribution } = props;
 
     const githubOidc = iam.OpenIdConnectProvider.fromOpenIdConnectProviderArn(
-      this, 'GithubOidc', githubOidcProviderArn,
+      this,
+      'GithubOidc',
+      githubOidcProviderArn,
     );
 
     const role = new iam.Role(this, 'NakostatCiRole', {
       roleName: `nakomis-nakostat-github-ci-${deployEnv}`,
-      assumedBy: new iam.WebIdentityPrincipal(
-        githubOidc.openIdConnectProviderArn,
-        {
-          StringEquals: {
-            'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
-          },
-          // GitHub now issues OIDC subjects carrying immutable numeric ids:
-          //   repo:OWNER@OWNER_ID/REPO@REPO_ID:CONTEXT
-          // rather than the older repo:OWNER/REPO:CONTEXT. A condition pinned to
-          // names alone silently stops matching, and the symptom is an opaque
-          // "Not authorized to perform sts:AssumeRoleWithWebIdentity" after
-          // roughly two minutes of retries — with the role, the provider
-          // audience and the workflow variable all looking perfectly correct.
-          //
-          // The ids are the point: they survive a rename, where a policy pinned
-          // only to names can be inherited by whoever claims the name next.
-          // A list is an OR; the legacy form is kept because it is still emitted
-          // in some contexts and the names are pinned either way.
-          StringLike: {
-            'token.actions.githubusercontent.com:sub': [
-              'repo:nakomis@1488244/nakostat@1220064545:*',
-              'repo:nakomis/nakostat:*',
-            ],
-          },
+      assumedBy: new iam.WebIdentityPrincipal(githubOidc.openIdConnectProviderArn, {
+        StringEquals: {
+          'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
         },
-      ),
+        // GitHub now issues OIDC subjects carrying immutable numeric ids:
+        //   repo:OWNER@OWNER_ID/REPO@REPO_ID:CONTEXT
+        // rather than the older repo:OWNER/REPO:CONTEXT. A condition pinned to
+        // names alone silently stops matching, and the symptom is an opaque
+        // "Not authorized to perform sts:AssumeRoleWithWebIdentity" after
+        // roughly two minutes of retries — with the role, the provider
+        // audience and the workflow variable all looking perfectly correct.
+        //
+        // The ids are the point: they survive a rename, where a policy pinned
+        // only to names can be inherited by whoever claims the name next.
+        // A list is an OR; the legacy form is kept because it is still emitted
+        // in some contexts and the names are pinned either way.
+        StringLike: {
+          'token.actions.githubusercontent.com:sub': [
+            'repo:nakomis@1488244/nakostat@1220064545:*',
+            'repo:nakomis/nakostat:*',
+          ],
+        },
+      }),
       description: `Assumed by nakostat GitHub Actions CI (${deployEnv})`,
       inlinePolicies: {
         CdkDeploy: new iam.PolicyDocument({
@@ -62,24 +64,43 @@ export class GithubCiStack extends cdk.Stack {
             }),
           ],
         }),
-        ...(webBucket && webDistribution ? {
-          WebDeploy: new iam.PolicyDocument({
-            statements: [
-              new iam.PolicyStatement({
-                actions: ['s3:PutObject', 's3:DeleteObject', 's3:ListBucket'],
-                resources: [webBucket.bucketArn, `${webBucket.bucketArn}/*`],
+        // Record deployments in the shared nakomis deployment tracker
+        // (api.infra.nakomis.com, nakomis-infra's DeploymentTrackerStack). It is a
+        // REST API in the prod account, so the sandbox role calls it cross-account
+        // and needs this identity grant as well as the tracker's resource-policy
+        // allow-list; the prod role would manage on the resource policy alone.
+        DeploymentTracker: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              actions: ['execute-api:Invoke'],
+              resources: [
+                `arn:aws:execute-api:eu-west-2:${DEPLOYMENT_TRACKER_ACCOUNT}:*/*/*/deployments/*`,
+              ],
+            }),
+          ],
+        }),
+        ...(webBucket && webDistribution
+          ? {
+              WebDeploy: new iam.PolicyDocument({
+                statements: [
+                  new iam.PolicyStatement({
+                    actions: ['s3:PutObject', 's3:DeleteObject', 's3:ListBucket'],
+                    resources: [webBucket.bucketArn, `${webBucket.bucketArn}/*`],
+                  }),
+                  new iam.PolicyStatement({
+                    actions: ['cloudfront:CreateInvalidation'],
+                    resources: [
+                      `arn:aws:cloudfront::${this.account}:distribution/${webDistribution.distributionId}`,
+                    ],
+                  }),
+                  new iam.PolicyStatement({
+                    actions: ['ssm:GetParameter'],
+                    resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/nakostat/*`],
+                  }),
+                ],
               }),
-              new iam.PolicyStatement({
-                actions: ['cloudfront:CreateInvalidation'],
-                resources: [`arn:aws:cloudfront::${this.account}:distribution/${webDistribution.distributionId}`],
-              }),
-              new iam.PolicyStatement({
-                actions: ['ssm:GetParameter'],
-                resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/nakostat/*`],
-              }),
-            ],
-          }),
-        } : {}),
+            }
+          : {}),
       },
     });
 

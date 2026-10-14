@@ -148,7 +148,10 @@ path = "/run/nakostat/sensor.sock"
     fn env_var_overrides_mqtt_endpoint() {
         let _guard = ENV_LOCK.lock().unwrap();
         let (_f, path) = write_toml(VALID_TOML);
-        std::env::set_var("NAKOSTAT_MQTT_ENDPOINT", "override.iot.eu-west-1.amazonaws.com");
+        std::env::set_var(
+            "NAKOSTAT_MQTT_ENDPOINT",
+            "override.iot.eu-west-1.amazonaws.com",
+        );
         let cfg = Config::from_file(&path).unwrap();
         std::env::remove_var("NAKOSTAT_MQTT_ENDPOINT");
         assert_eq!(cfg.mqtt.endpoint, "override.iot.eu-west-1.amazonaws.com");

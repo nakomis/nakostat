@@ -1,14 +1,14 @@
 import * as cdk from 'aws-cdk-lib';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
-import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { HttpJwtAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
-import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import type * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
+import type { Construct } from 'constructs';
 import * as path from 'path';
-import { Construct } from 'constructs';
 
 export interface ApiStackProps extends cdk.StackProps {
   deployEnv: 'sandbox' | 'prod';
@@ -34,10 +34,12 @@ export class ApiStack extends cdk.Stack {
     // nakomis-infra; the nakostat app client ID is published by WebStack — hence
     // the ApiStack → WebStack dependency wired in bin/nakostat.ts.
     const userPoolId = ssm.StringParameter.valueForStringParameter(
-      this, `/nakomis-infra/${deployEnv}/cognito/user-pool-id`,
+      this,
+      `/nakomis-infra/${deployEnv}/cognito/user-pool-id`,
     );
     const userPoolClientId = ssm.StringParameter.valueForStringParameter(
-      this, `/nakostat/${deployEnv}/cognito/client-id`,
+      this,
+      `/nakostat/${deployEnv}/cognito/client-id`,
     );
 
     const authorizer = new HttpJwtAuthorizer(
@@ -77,12 +79,14 @@ export class ApiStack extends cdk.Stack {
       bundling: { externalModules: [] },
     });
     stateTable.grantWriteData(setpointHandler);
-    setpointHandler.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['iot:Publish'],
-      resources: [
-        `arn:aws:iot:${this.region}:${this.account}:topic/nakostat/${deployEnv}/api/setpoint`,
-      ],
-    }));
+    setpointHandler.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['iot:Publish'],
+        resources: [
+          `arn:aws:iot:${this.region}:${this.account}:topic/nakostat/${deployEnv}/api/setpoint`,
+        ],
+      }),
+    );
 
     const boilerUsageHandler = new nodejs.NodejsFunction(this, 'BoilerUsageHandler', {
       entry: path.join(__dirname, '../lambda/api/boiler-usage-handler.ts'),

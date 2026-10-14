@@ -176,9 +176,7 @@ describe('IotStack — sandbox', () => {
         Statement: Match.arrayWith([
           Match.objectLike({
             Action: Match.arrayWith(['ssm:PutParameter', 'ssm:DeleteParameter']),
-            Resource: Match.arrayWith([
-              Match.stringLikeRegexp('/nakostat/sandbox/pi/certPem'),
-            ]),
+            Resource: Match.arrayWith([Match.stringLikeRegexp('/nakostat/sandbox/pi/certPem')]),
           }),
         ]),
       },
@@ -204,7 +202,9 @@ describe('IotStack — prod', () => {
     template.hasResourceProperties('AWS::IoT::Thing', { ThingName: 'nakostat-pi-prod' });
     template.hasResourceProperties('AWS::IoT::Thing', { ThingName: 'nakostat-esp32-prod' });
     template.hasResourceProperties('AWS::IoT::Policy', { PolicyName: 'nakostat-pi-policy-prod' });
-    template.hasResourceProperties('AWS::IoT::Policy', { PolicyName: 'nakostat-esp32-policy-prod' });
+    template.hasResourceProperties('AWS::IoT::Policy', {
+      PolicyName: 'nakostat-esp32-policy-prod',
+    });
     template.hasResourceProperties('AWS::IoT::Thing', { ThingName: 'nakostat-pish-prod' });
     template.hasResourceProperties('AWS::IoT::Policy', { PolicyName: 'nakostat-pish-policy-prod' });
   });

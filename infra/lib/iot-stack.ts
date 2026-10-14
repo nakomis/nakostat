@@ -1,6 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as iot from 'aws-cdk-lib/aws-iot';
-import { Construct } from 'constructs';
+import type { Construct } from 'constructs';
 import { CertCreator } from './cert-creator';
 
 export interface IotStackProps extends cdk.StackProps {

@@ -23,25 +23,60 @@ jobs:
       web: ${{ steps.filter.outputs.web }}
       esp32: ${{ steps.filter.outputs.esp32 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
             sensor-daemon:
               - 'embedded/pi/sensor-daemon/**'
               - '.github/workflows/ci.yml'
+              - '.tool-versions'
             infra:
               - 'infra/**'
               - '.github/workflows/ci.yml'
+              - '.tool-versions'
             web:
               - 'web/**'
               - '.github/workflows/ci.yml'
+              - '.tool-versions'
             esp32:
               - 'embedded/esp32/**'
               - '.github/workflows/ci.yml'
+              - '.tool-versions'
+
+  # ── Toolchain pins (.tool-versions is the single source of truth) ──────────
+  # setup-node, setup-python and the Rust step read .tool-versions directly.
+  # pnpm/action-setup reads package.json "packageManager" instead, and infra runs
+  # Biome at its biome.json $schema version, so check those agree with the pins.
+  toolchain:
+    name: Toolchain pins
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - name: Check pins agree with .tool-versions
+        run: |
+          status=0
+          pnpm_pin="$(awk '$1 == "pnpm" { print $2 }' .tool-versions)"
+          for pkg in web/package.json infra/package.json; do
+            pm="$(jq -r '.packageManager // empty' "$pkg")"
+            if [[ -n "$pm" && "$pm" != "pnpm@${pnpm_pin}" ]]; then
+              echo "::error file=${pkg}::packageManager is ${pm} but .tool-versions pins pnpm ${pnpm_pin}"
+              status=1
+            fi
+          done
+          biome_schema() { jq -r '."$schema"' "$1" | sed -E 's#.*/schemas/([^/]+)/schema\.json#\1#'; }
+          web_biome="$(biome_schema web/biome.json)"
+          infra_biome="$(biome_schema infra/biome.json)"
+          if [[ "$web_biome" != "$infra_biome" ]]; then
+            echo "::error file=infra/biome.json::Biome ${infra_biome} differs from web/biome.json (${web_biome})"
+            status=1
+          fi
+          exit "$status"
 
   # ── Rust / Sensor daemon ──────────────────────────────────────────────────────
   sensor-daemon:
@@ -50,24 +85,41 @@ jobs:
     needs: changes
     if: needs.changes.outputs.sensor-daemon == 'true' || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
 
+      # The toolchain is pinned in .tool-versions (asdf `rust` line), so CI and
+      # local builds agree on rustfmt and clippy behaviour.
+      - name: Read Rust version from .tool-versions
+        id: rust
+        run: echo "version=$(awk '$1 == "rust" { print $2 }' .tool-versions)" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
-          components: llvm-tools-preview
+          toolchain: ${{ steps.rust.outputs.version }}
+          components: llvm-tools-preview, clippy, rustfmt
 
       - name: Cache Cargo registry + build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             embedded/pi/sensor-daemon/target
-          key: ${{ runner.os }}-cargo-sensor-daemon-${{ hashFiles('embedded/pi/sensor-daemon/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-sensor-daemon-
+          key: ${{ runner.os }}-cargo-sensor-daemon-${{ steps.rust.outputs.version }}-${{ hashFiles('embedded/pi/sensor-daemon/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-sensor-daemon-${{ steps.rust.outputs.version }}-
+
+      - name: Format check (rustfmt)
+        working-directory: embedded/pi/sensor-daemon
+        run: cargo fmt --check
+
+      # Default features only: `real-sensor` pulls in the Pi I²C drivers, which
+      # are built on the Pi and not on the runner.
+      - name: Lint (clippy)
+        working-directory: embedded/pi/sensor-daemon
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
@@ -81,7 +133,7 @@ jobs:
         run: cargo llvm-cov report --fail-under-lines 70
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sensor-daemon-coverage
           path: embedded/pi/sensor-daemon/lcov.info
@@ -93,27 +145,40 @@ jobs:
     needs: changes
     if: needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
 
       # pnpm (version pinned via infra/package.json "packageManager"). Must
       # precede setup-node so its cache can key off the pnpm store.
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           package_json_file: infra/package.json
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '25'
+          node-version-file: .tool-versions
           cache: 'pnpm'
           cache-dependency-path: infra/pnpm-lock.yaml
 
       - name: Install dependencies
         working-directory: infra
         run: pnpm install --frozen-lockfile
+
+      - name: Type-check
+        working-directory: infra
+        run: pnpm exec tsc --noEmit
+
+      # Biome is run at the version infra/biome.json declares in its $schema
+      # (kept equal to web's by the toolchain job), rather than as an infra
+      # devDependency.
+      - name: Lint + format check (Biome)
+        working-directory: infra
+        run: |
+          BIOME_VERSION="$(jq -r '."$schema"' biome.json | sed -E 's#.*/schemas/([^/]+)/schema\.json#\1#')"
+          pnpm dlx "@biomejs/biome@${BIOME_VERSION}" ci .
 
       - name: Test + coverage
         working-directory: infra
@@ -134,36 +199,76 @@ jobs:
       run:
         working-directory: infra
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           package_json_file: infra/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '25'
+          node-version-file: .tool-versions
           cache: pnpm
           cache-dependency-path: infra/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - name: Configure AWS credentials (sandbox)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::975050268859:role/nakomis-nakostat-github-ci-sandbox
           aws-region: eu-west-2
       - name: CDK synth (sandbox)
         run: pnpm run ci-synth-sandbox --output cdk-synth.out
 
-  # ── Deploy to sandbox (auto on merge to main) ─────────────────────────────────
-  deploy-infra-sandbox:
-    name: Deploy — sandbox
+  # ── Infra version (shared nakomis deployment tracker) ────────────────────────
+  # Computed once from the tracker (project `nakostat-infra`) and handed to both
+  # deploy jobs as an artifact, so sandbox and prod deploy the same version. The
+  # bump comes from a line that is exactly --bump-major / --bump-minor in the
+  # merged commit message (patch otherwise). See nakomis-infra
+  # .github/actions/README.md.
+  version-infra:
+    name: Compute infra version
     runs-on: ubuntu-latest
     needs: [changes, synth-infra]
     if: |
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       (needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch') &&
       needs.synth-infra.result == 'success'
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - name: Configure AWS credentials (sandbox)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::975050268859:role/nakomis-nakostat-github-ci-sandbox
+          aws-region: eu-west-2
+      - name: Compute version
+        id: version
+        uses: nakomis/nakomis-infra/.github/actions/compute-version@main
+        with:
+          project: nakostat-infra
+          version-file: infra/version.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: infra-version
+          path: infra/version.json
+
+  # ── Deploy to sandbox (auto on merge to main) ─────────────────────────────────
+  deploy-infra-sandbox:
+    name: Deploy — sandbox
+    runs-on: ubuntu-latest
+    needs: [changes, synth-infra, version-infra]
+    if: |
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch') &&
+      needs.synth-infra.result == 'success' &&
+      needs.version-infra.result == 'success'
     environment: sandbox
     permissions:
       id-token: write
@@ -172,32 +277,43 @@ jobs:
       run:
         working-directory: infra
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
+      - name: Fetch computed version
+        uses: actions/download-artifact@v8
+        with:
+          name: infra-version
+          path: infra
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           package_json_file: infra/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '25'
+          node-version-file: .tool-versions
           cache: pnpm
           cache-dependency-path: infra/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - name: Configure AWS credentials (sandbox)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::975050268859:role/nakomis-nakostat-github-ci-sandbox
           aws-region: eu-west-2
       - name: Deploy to sandbox
         run: pnpm run ci-deploy-sandbox
+      - name: Record deployment (sandbox)
+        uses: nakomis/nakomis-infra/.github/actions/record-deployment@main
+        with:
+          project: nakostat-infra
+          environment: sandbox
+          version-file: infra/version.json
 
   # ── Deploy to prod (manual approval required) ────────────────────────────────
   deploy-infra-prod:
     name: Deploy — production
     runs-on: ubuntu-latest
-    needs: [changes, deploy-infra-sandbox]
+    needs: [changes, version-infra, deploy-infra-sandbox]
     if: |
       github.event_name == 'push' &&
       needs.changes.outputs.infra == 'true' &&
@@ -210,26 +326,38 @@ jobs:
       run:
         working-directory: infra
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
+      # The same version sandbox deployed — never recomputed for prod.
+      - name: Fetch computed version
+        uses: actions/download-artifact@v8
+        with:
+          name: infra-version
+          path: infra
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           package_json_file: infra/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '25'
+          node-version-file: .tool-versions
           cache: pnpm
           cache-dependency-path: infra/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - name: Configure AWS credentials (prod)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::637423226886:role/nakomis-nakostat-github-ci-prod
           aws-region: eu-west-2
       - name: Deploy to production
         run: pnpm run ci-deploy-prod
+      - name: Record deployment (prod)
+        uses: nakomis/nakomis-infra/.github/actions/record-deployment@main
+        with:
+          project: nakostat-infra
+          environment: prod
+          version-file: infra/version.json
 
   # ── React / Web dashboard ─────────────────────────────────────────────────────
   web:
@@ -238,21 +366,21 @@ jobs:
     needs: changes
     if: needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
 
       # pnpm (version pinned via web/package.json "packageManager"). Must precede
       # setup-node so its npm cache can key off the pnpm store.
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           package_json_file: web/package.json
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '25'
+          node-version-file: .tool-versions
           cache: 'pnpm'
           cache-dependency-path: web/pnpm-lock.yaml
 
@@ -305,21 +433,21 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           package_json_file: web/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '25'
+          node-version-file: .tool-versions
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - name: Configure AWS credentials (sandbox)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::975050268859:role/nakomis-nakostat-github-ci-sandbox
           aws-region: eu-west-2
@@ -332,11 +460,11 @@ jobs:
       - name: Deploy to S3
         run: |
           BUCKET=$(aws ssm get-parameter --name /nakostat/sandbox/web/bucket-name --query Parameter.Value --output text)
-          aws s3 sync build/ s3://$BUCKET --delete
+          aws s3 sync build/ "s3://${BUCKET}" --delete
       - name: Invalidate CloudFront
         run: |
           DIST_ID=$(aws ssm get-parameter --name /nakostat/sandbox/web/distribution-id --query Parameter.Value --output text)
-          aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"
+          aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
 
   # ── Deploy web to prod (after prod infra deploy) ─────────────────────────────
   deploy-web-prod:
@@ -356,21 +484,21 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           package_json_file: web/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '25'
+          node-version-file: .tool-versions
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - name: Configure AWS credentials (prod)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::637423226886:role/nakomis-nakostat-github-ci-prod
           aws-region: eu-west-2
@@ -383,11 +511,11 @@ jobs:
       - name: Deploy to S3
         run: |
           BUCKET=$(aws ssm get-parameter --name /nakostat/prod/web/bucket-name --query Parameter.Value --output text)
-          aws s3 sync build/ s3://$BUCKET --delete
+          aws s3 sync build/ "s3://${BUCKET}" --delete
       - name: Invalidate CloudFront
         run: |
           DIST_ID=$(aws ssm get-parameter --name /nakostat/prod/web/distribution-id --query Parameter.Value --output text)
-          aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"
+          aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
 
   # ── ESP32 firmware (PlatformIO native unit tests) ─────────────────────────────
   esp32:
@@ -396,23 +524,25 @@ jobs:
     needs: changes
     if: needs.changes.outputs.esp32 == 'true' || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version-file: .tool-versions
 
       - name: Install PlatformIO
-        run: pip install platformio
+        run: pip install -r embedded/esp32/requirements.txt
 
+      # The boiler project has no `native` environment yet, so there is nothing
+      # host-side to run; this starts testing as soon as one is added.
       - name: Run native unit tests
-        working-directory: embedded/esp32
+        working-directory: embedded/esp32/boiler
         run: |
-          if [ ! -f platformio.ini ]; then
-            echo "No platformio.ini — ESP32 project not yet initialised, skipping"
+          if ! grep -q '^\[env:native\]' platformio.ini; then
+            echo "No [env:native] in platformio.ini — no host-side tests yet, skipping"
             exit 0
           fi
           pio test -e native
@@ -421,13 +551,14 @@ jobs:
   ci-status:
     name: CI Status
     runs-on: ubuntu-latest
-    needs: [changes, sensor-daemon, infra, synth-infra, web, esp32]
+    needs: [changes, toolchain, sensor-daemon, infra, synth-infra, web, esp32]
     if: always()
     steps:
       - name: Check CI results
         run: |
           # Fail if any job failed (skip/success are acceptable)
-          if [[ "${{ needs.sensor-daemon.result }}" == "failure" ]] || \
+          if [[ "${{ needs.toolchain.result }}" == "failure" ]] || \
+             [[ "${{ needs.sensor-daemon.result }}" == "failure" ]] || \
              [[ "${{ needs.infra.result }}" == "failure" ]] || \
              [[ "${{ needs.synth-infra.result }}" == "failure" ]] || \
              [[ "${{ needs.web.result }}" == "failure" ]] || \

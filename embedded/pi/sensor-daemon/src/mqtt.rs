@@ -23,9 +23,12 @@ struct RumqttcSink {
 
 impl MqttSink for RumqttcSink {
     fn publish(&self, _topic: &str, payload: &str) -> Result<()> {
-        self.runtime.block_on(
-            self.client.publish(&self.topic, QoS::AtLeastOnce, false, payload.as_bytes()),
-        )?;
+        self.runtime.block_on(self.client.publish(
+            &self.topic,
+            QoS::AtLeastOnce,
+            false,
+            payload.as_bytes(),
+        ))?;
         Ok(())
     }
 }
@@ -47,15 +50,14 @@ impl MqttPublisher {
         use std::sync::Arc as RustlsArc;
 
         // Load device cert and key
-        let cert_pem = fs::read(&cfg.cert_path)
-            .with_context(|| format!("reading cert {}", cfg.cert_path))?;
-        let key_pem = fs::read(&cfg.key_path)
-            .with_context(|| format!("reading key {}", cfg.key_path))?;
+        let cert_pem =
+            fs::read(&cfg.cert_path).with_context(|| format!("reading cert {}", cfg.cert_path))?;
+        let key_pem =
+            fs::read(&cfg.key_path).with_context(|| format!("reading key {}", cfg.key_path))?;
 
-        let certs: Vec<CertificateDer<'static>> =
-            rustls_pemfile::certs(&mut cert_pem.as_slice())
-                .collect::<std::result::Result<_, _>>()
-                .context("parsing device cert PEM")?;
+        let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_pem.as_slice())
+            .collect::<std::result::Result<_, _>>()
+            .context("parsing device cert PEM")?;
 
         let key = rustls_pemfile::private_key(&mut key_pem.as_slice())
             .context("reading device key PEM")?
@@ -97,14 +99,21 @@ impl MqttPublisher {
         });
 
         Ok((
-            Self { sink, topic: cfg.topic.clone() },
+            Self {
+                sink,
+                topic: cfg.topic.clone(),
+            },
             handle,
         ))
     }
 
     /// Create a publisher backed by a custom sink — used in tests.
+    #[cfg(test)]
     pub fn with_sink(sink: Arc<dyn MqttSink>, topic: impl Into<String>) -> Self {
-        Self { sink, topic: topic.into() }
+        Self {
+            sink,
+            topic: topic.into(),
+        }
     }
 
     pub fn publish(&self, reading: &SensorReading) -> Result<()> {
@@ -128,7 +137,9 @@ mod tests {
 
     impl CaptureSink {
         fn new() -> Arc<Self> {
-            Arc::new(Self { calls: Mutex::new(vec![]) })
+            Arc::new(Self {
+                calls: Mutex::new(vec![]),
+            })
         }
         fn calls(&self) -> Vec<(String, String)> {
             self.calls.lock().unwrap().clone()
@@ -137,7 +148,10 @@ mod tests {
 
     impl MqttSink for CaptureSink {
         fn publish(&self, topic: &str, payload: &str) -> Result<()> {
-            self.calls.lock().unwrap().push((topic.to_owned(), payload.to_owned()));
+            self.calls
+                .lock()
+                .unwrap()
+                .push((topic.to_owned(), payload.to_owned()));
             Ok(())
         }
     }
@@ -221,7 +235,10 @@ mod tests {
             .await
             .err()
             .unwrap();
-        assert!(err.to_string().contains("reading cert"), "unexpected: {err}");
+        assert!(
+            err.to_string().contains("reading cert"),
+            "unexpected: {err}"
+        );
     }
 
     #[tokio::test]
@@ -253,6 +270,9 @@ mod tests {
         .await
         .err()
         .unwrap();
-        assert!(err.to_string().contains("no private key found"), "unexpected: {err}");
+        assert!(
+            err.to_string().contains("no private key found"),
+            "unexpected: {err}"
+        );
     }
 }
