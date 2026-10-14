@@ -19,6 +19,7 @@ pub trait SensorReader: Send + 'static {
 
 // ── Mock (used in tests) ──────────────────────────────────────────────────────
 
+#[cfg_attr(feature = "real-sensor", allow(dead_code))]
 pub struct MockSensorReader {
     pub temperature_c: f32,
     pub humidity_pct: f32,
@@ -54,10 +55,18 @@ impl SensorReader for MockSensorReader {
 
 // ── Real I²C implementation (Pi only) ────────────────────────────────────────
 
+/// ENS160 I²C address with ADDR pulled high (the usual breakout default).
+#[cfg(feature = "real-sensor")]
+const ENS160_ADDRESS: u8 = 0x53;
+
+/// AHT21 I²C address (fixed; the part is AHT20-compatible).
+#[cfg(feature = "real-sensor")]
+const AHT21_ADDRESS: u8 = 0x38;
+
 #[cfg(feature = "real-sensor")]
 pub struct I2cSensorReader {
     ens: ens160::Ens160<linux_embedded_hal::I2cdev>,
-    aht: aht20_driver::AHT20<linux_embedded_hal::I2cdev, linux_embedded_hal::Delay>,
+    aht: aht20_driver::AHT20<linux_embedded_hal::I2cdev>,
 }
 
 #[cfg(feature = "real-sensor")]
@@ -68,16 +77,15 @@ impl I2cSensorReader {
 
         let bus_path = format!("/dev/i2c-{bus_number}");
 
-        // ENS160: default I²C address 0x53
+        // ENS160: switch to standard gas-sensing mode
         let i2c_ens = I2cdev::new(&bus_path)?;
-        let mut ens = ens160::Ens160::new(i2c_ens, ens160::Address::Secondary);
-        ens.initialize()?;
-        ens.set_operation_mode(ens160::OperationMode::Standard)?;
+        let mut ens = ens160::Ens160::new(i2c_ens, ENS160_ADDRESS);
+        ens.operational()?;
 
-        // AHT21 is AHT20-compatible; default address 0x38
+        // AHT21: wait for the sensor to report itself calibrated
         let i2c_aht = I2cdev::new(&bus_path)?;
         let mut delay = Delay;
-        let mut aht = aht20_driver::AHT20::new(i2c_aht, 0x38);
+        let mut aht = aht20_driver::AHT20::new(i2c_aht, AHT21_ADDRESS);
         aht.init(&mut delay)?;
 
         Ok(Self { ens, aht })
@@ -89,29 +97,31 @@ impl SensorReader for I2cSensorReader {
     fn read(&mut self) -> Result<SensorReading> {
         use linux_embedded_hal::Delay;
 
-        // AHT21 read — temperature and humidity
+        // AHT21 read — temperature and humidity. The driver hands out a
+        // short-lived "initialised" handle; re-acquiring it is cheap once the
+        // sensor is calibrated (a status check, no re-initialisation).
         let mut delay = Delay;
-        let (humidity, temperature) = self.aht.read(&mut delay)?;
+        let aht_reading = self.aht.init(&mut delay)?.measure(&mut delay)?;
 
-        let temperature_c = temperature.celsius();
-        let humidity_pct = humidity.rh();
+        let temperature_c = aht_reading.temperature;
+        let humidity_pct = aht_reading.humidity;
 
-        // Feed T/RH compensation into ENS160 for more accurate gas readings
-        self.ens.set_temp_and_rh_compensation(
-            (temperature_c * 64.0) as u16,
-            (humidity_pct * 512.0) as u16,
-        )?;
+        // Feed T/RH compensation into ENS160 for more accurate gas readings.
+        // The driver takes hundredths of a °C and of a %RH.
+        self.ens.set_temp((temperature_c * 100.0) as i16)?;
+        self.ens.set_hum((humidity_pct * 100.0) as u16)?;
 
         let status = self.ens.status()?;
-        let warming_up = status.operating_mode() != ens160::OperatingMode::Standard;
+        let warming_up = !matches!(status.validity_flag(), ens160::Validity::NormalOperation);
 
-        let data = self.ens.air_quality_data()?;
+        let eco2 = self.ens.eco2()?;
+        let tvoc = self.ens.tvoc()?;
 
         Ok(SensorReading {
             temperature_c,
             humidity_pct,
-            eco2_ppm: data.eco2().value(),
-            tvoc_ppb: data.tvoc(),
+            eco2_ppm: *eco2,
+            tvoc_ppb: tvoc,
             warming_up,
             timestamp: Utc::now(),
         })

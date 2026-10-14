@@ -17,7 +17,7 @@ Rust binary at `embedded/pi/sensor-daemon/`. Builds to a binary named `nakostat`
 
 ```bash
 cd embedded/pi/sensor-daemon
-cargo test                        # all 14 unit tests, no hardware needed
+cargo test                        # all unit tests, no hardware needed
 cargo build                       # debug binary (mock sensor)
 ```
 
@@ -25,10 +25,16 @@ The binary is named `nakostat` (not `nakostat-sensor`).
 
 ### Cross-compile for Pi 5 (aarch64)
 
-Prerequisites (one-time):
+The toolchain (Rust 1.99.0, edition 2024) is pinned in
+`sensor-daemon/rust-toolchain.toml`; rustup installs it — with the
+`aarch64-unknown-linux-gnu` and `armv7-unknown-linux-gnueabihf` targets — on
+first use, so no `rustup target add` is needed.
+
+Prerequisites (one-time): a cross-linker.
 ```bash
-rustup target add aarch64-unknown-linux-gnu
-brew install aarch64-unknown-linux-gnu   # or install the cross-linker manually
+brew install aarch64-unknown-linux-gnu   # macOS
+sudo apt install gcc-aarch64-linux-gnu   # Debian/Ubuntu; then:
+export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
 ```
 
 The deploy script (see below) handles cross-compilation automatically.

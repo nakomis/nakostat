@@ -1,0 +1,7 @@
+# Pinned so host builds, CI and Pi cross-builds all use the same compiler.
+# Edition 2024 needs Rust 1.85 or newer.
+[toolchain]
+channel = "1.99.0"
+components = ["clippy", "rustfmt", "llvm-tools-preview"]
+targets = ["aarch64-unknown-linux-gnu", "armv7-unknown-linux-gnueabihf"]
+profile = "minimal"
