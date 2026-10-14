@@ -411,20 +411,73 @@ jobs:
         working-directory: web
         run: pnpm build
 
-  # ── Deploy web to sandbox (auto on merge to main) ────────────────────────────
-  # KNOWINGLY BROKEN during the web rebuild (epic STAT-52): this job still calls
-  # scripts/set-config.sh + scripts/compute-version.sh and syncs build/, all of
-  # which moved/changed in the Vite migration. Web deploys are expected to fail
-  # until STAT-56 restores the config + version plumbing and switches to dist/.
-  deploy-web-sandbox:
-    name: Deploy web — sandbox
+  # ── Web version (shared nakomis deployment tracker) ──────────────────────────
+  # Same pattern as version-infra: computed once and handed to both web deploy
+  # jobs as an artifact, so sandbox and prod deploy the same version. The tracker
+  # project is read from TRACKER_PROJECT in web/src/api/deployment-tracker.ts,
+  # so what CI records is exactly what the footer's "deployed" badge reads back.
+  version-web:
+    name: Compute web version
     runs-on: ubuntu-latest
-    needs: [changes, web, deploy-infra-sandbox]
+    needs: [changes, web]
     if: |
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       (needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch') &&
+      needs.web.result == 'success'
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      project: ${{ steps.project.outputs.project }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - name: Read tracker project
+        id: project
+        run: |
+          project="$(sed -nE "s/^export const TRACKER_PROJECT = '([^']+)';$/\1/p" web/src/api/deployment-tracker.ts)"
+          if [[ -z "$project" ]]; then
+            echo "::error file=web/src/api/deployment-tracker.ts::TRACKER_PROJECT not found"
+            exit 1
+          fi
+          echo "project=${project}" >> "$GITHUB_OUTPUT"
+      - name: Configure AWS credentials (sandbox)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::975050268859:role/nakomis-nakostat-github-ci-sandbox
+          aws-region: eu-west-2
+      - name: Compute version
+        id: version
+        uses: nakomis/nakomis-infra/.github/actions/compute-version@main
+        with:
+          project: ${{ steps.project.outputs.project }}
+          version-file: web/src/version.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web-version
+          path: web/src/version.json
+
+  # ── Deploy web to sandbox (auto on merge to main) ────────────────────────────
+  # A job whose needs include a skipped job is itself skipped unless its `if`
+  # carries a status function, so without !cancelled() a web-only change (which
+  # skips deploy-infra-sandbox) never deployed web. A skipped infra deploy is
+  # only accepted when infra was not meant to deploy, so a combined change whose
+  # infra tests fail still holds web back.
+  deploy-web-sandbox:
+    name: Deploy web — sandbox
+    runs-on: ubuntu-latest
+    needs: [changes, web, version-web, deploy-infra-sandbox]
+    if: |
+      !cancelled() &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch') &&
       needs.web.result == 'success' &&
-      (needs.deploy-infra-sandbox.result == 'success' || needs.deploy-infra-sandbox.result == 'skipped')
+      needs.version-web.result == 'success' &&
+      (needs.deploy-infra-sandbox.result == 'success' ||
+        (needs.deploy-infra-sandbox.result == 'skipped' &&
+          needs.changes.outputs.infra != 'true' && github.event_name != 'workflow_dispatch'))
     environment: sandbox
     permissions:
       id-token: write
@@ -436,6 +489,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
+      # The version version-web computed — the same one for sandbox and prod.
+      - name: Fetch computed version
+        uses: actions/download-artifact@v8
+        with:
+          name: web-version
+          path: web/src
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -451,8 +510,6 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::975050268859:role/nakomis-nakostat-github-ci-sandbox
           aws-region: eu-west-2
-      - name: Compute version
-        run: NPM_ENVIRONMENT=sandbox bash scripts/compute-version.sh
       - name: Set config
         run: bash scripts/set-config.sh sandbox
       - name: Build
@@ -460,22 +517,32 @@ jobs:
       - name: Deploy to S3
         run: |
           BUCKET=$(aws ssm get-parameter --name /nakostat/sandbox/web/bucket-name --query Parameter.Value --output text)
-          aws s3 sync build/ "s3://${BUCKET}" --delete
+          aws s3 sync dist/ "s3://${BUCKET}" --delete
       - name: Invalidate CloudFront
         run: |
           DIST_ID=$(aws ssm get-parameter --name /nakostat/sandbox/web/distribution-id --query Parameter.Value --output text)
           aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
+      - name: Record deployment (sandbox)
+        uses: nakomis/nakomis-infra/.github/actions/record-deployment@main
+        with:
+          project: ${{ needs.version-web.outputs.project }}
+          environment: sandbox
+          version-file: web/src/version.json
 
   # ── Deploy web to prod (after prod infra deploy) ─────────────────────────────
+  # !cancelled() for the same reason: deploy-infra-prod is skipped on web-only
+  # changes.
   deploy-web-prod:
     name: Deploy web — production
     runs-on: ubuntu-latest
-    needs: [changes, deploy-web-sandbox, deploy-infra-prod]
+    needs: [changes, version-web, deploy-web-sandbox, deploy-infra-prod]
     if: |
+      !cancelled() &&
       github.event_name == 'push' &&
       needs.changes.outputs.web == 'true' &&
       needs.deploy-web-sandbox.result == 'success' &&
-      (needs.deploy-infra-prod.result == 'success' || needs.deploy-infra-prod.result == 'skipped')
+      (needs.deploy-infra-prod.result == 'success' ||
+        (needs.deploy-infra-prod.result == 'skipped' && needs.changes.outputs.infra != 'true'))
     environment: production
     permissions:
       id-token: write
@@ -487,6 +554,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.CHECKOUT_REF }}
+      # The same version sandbox deployed — never recomputed for prod.
+      - name: Fetch computed version
+        uses: actions/download-artifact@v8
+        with:
+          name: web-version
+          path: web/src
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -502,8 +575,6 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::637423226886:role/nakomis-nakostat-github-ci-prod
           aws-region: eu-west-2
-      - name: Compute version
-        run: NPM_ENVIRONMENT=prod bash scripts/compute-version.sh
       - name: Set config
         run: bash scripts/set-config.sh prod
       - name: Build
@@ -511,11 +582,17 @@ jobs:
       - name: Deploy to S3
         run: |
           BUCKET=$(aws ssm get-parameter --name /nakostat/prod/web/bucket-name --query Parameter.Value --output text)
-          aws s3 sync build/ "s3://${BUCKET}" --delete
+          aws s3 sync dist/ "s3://${BUCKET}" --delete
       - name: Invalidate CloudFront
         run: |
           DIST_ID=$(aws ssm get-parameter --name /nakostat/prod/web/distribution-id --query Parameter.Value --output text)
           aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
+      - name: Record deployment (prod)
+        uses: nakomis/nakomis-infra/.github/actions/record-deployment@main
+        with:
+          project: ${{ needs.version-web.outputs.project }}
+          environment: prod
+          version-file: web/src/version.json
 
   # ── ESP32 firmware (PlatformIO native unit tests) ─────────────────────────────
   esp32:
