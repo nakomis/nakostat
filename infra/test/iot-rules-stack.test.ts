@@ -23,8 +23,8 @@ describe('IotRulesStack — sandbox', () => {
     template = makeStack('sandbox');
   });
 
-  test('creates two IoT topic rules', () => {
-    template.resourceCountIs('AWS::IoT::TopicRule', 2);
+  test('creates three IoT topic rules', () => {
+    template.resourceCountIs('AWS::IoT::TopicRule', 3);
   });
 
   test('Pi readings rule targets pi/readings topic', () => {
@@ -43,8 +43,30 @@ describe('IotRulesStack — sandbox', () => {
     });
   });
 
-  test('creates two Lambda functions for rule handlers', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 2);
+  test('Pish setpoint rule targets pish/setpoint topic', () => {
+    template.hasResourceProperties('AWS::IoT::TopicRule', {
+      RuleName: 'nakostat_pish_setpoint_sandbox',
+      TopicRulePayload: {
+        Sql: "SELECT * FROM 'nakostat/sandbox/pish/setpoint'",
+        RuleDisabled: false,
+      },
+    });
+  });
+
+  test('Pish setpoint handler gets the state table name', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: {
+        Variables: { STATE_TABLE_NAME: Match.anyValue() },
+      },
+    });
+  });
+
+  test('IoT may invoke the Pish setpoint handler', () => {
+    template.resourceCountIs('AWS::Lambda::Permission', 3);
+  });
+
+  test('creates three Lambda functions for rule handlers', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 3);
   });
 
   test('Lambda functions use NODEJS_22_X runtime', () => {
@@ -74,6 +96,14 @@ describe('IotRulesStack — prod', () => {
     template.hasResourceProperties('AWS::IoT::TopicRule', {
       TopicRulePayload: {
         Sql: Match.stringLikeRegexp("nakostat/prod/pi/readings"),
+      },
+    });
+  });
+
+  test('Pish setpoint rule targets prod topic', () => {
+    template.hasResourceProperties('AWS::IoT::TopicRule', {
+      TopicRulePayload: {
+        Sql: Match.stringLikeRegexp("nakostat/prod/pish/setpoint"),
       },
     });
   });

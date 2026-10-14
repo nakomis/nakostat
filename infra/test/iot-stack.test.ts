@@ -104,8 +104,54 @@ describe('IotStack — sandbox', () => {
     });
   });
 
-  test('two custom resources created (one per device)', () => {
-    template.resourceCountIs('AWS::CloudFormation::CustomResource', 2);
+  test('creates Pish display IoT Thing', () => {
+    template.hasResourceProperties('AWS::IoT::Thing', {
+      ThingName: 'nakostat-pish-sandbox',
+    });
+  });
+
+  test('Pish policy allows connect only as nakostat-pish-sandbox', () => {
+    template.hasResourceProperties('AWS::IoT::Policy', {
+      PolicyName: 'nakostat-pish-policy-sandbox',
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Effect: 'Allow',
+            Action: 'iot:Connect',
+            Resource: Match.stringLikeRegexp(':client/nakostat-pish-sandbox$'),
+          }),
+        ]),
+      },
+    });
+  });
+
+  test('Pish policy allows publish only to pish/setpoint', () => {
+    template.hasResourceProperties('AWS::IoT::Policy', {
+      PolicyName: 'nakostat-pish-policy-sandbox',
+      PolicyDocument: {
+        Statement: [
+          Match.objectLike({ Action: 'iot:Connect' }),
+          {
+            Effect: 'Allow',
+            Action: 'iot:Publish',
+            Resource: Match.stringLikeRegexp(':topic/nakostat/sandbox/pish/setpoint$'),
+          },
+        ],
+      },
+    });
+  });
+
+  test('Pish cert is stored under the pish SSM paths', () => {
+    template.hasResourceProperties('AWS::CloudFormation::CustomResource', {
+      thingName: 'nakostat-pish-sandbox',
+      policyName: 'nakostat-pish-policy-sandbox',
+      certPemPath: '/nakostat/sandbox/pish/certPem',
+      privKeyPath: '/nakostat/sandbox/pish/privKey',
+    });
+  });
+
+  test('three custom resources created (one per device)', () => {
+    template.resourceCountIs('AWS::CloudFormation::CustomResource', 3);
   });
 
   test('Lambda has IoT permissions', () => {
@@ -146,6 +192,9 @@ describe('IotStack — sandbox', () => {
     template.hasOutput('Esp32ThingName', {
       Value: 'nakostat-esp32-sandbox',
     });
+    template.hasOutput('PishThingName', {
+      Value: 'nakostat-pish-sandbox',
+    });
   });
 });
 
@@ -156,5 +205,7 @@ describe('IotStack — prod', () => {
     template.hasResourceProperties('AWS::IoT::Thing', { ThingName: 'nakostat-esp32-prod' });
     template.hasResourceProperties('AWS::IoT::Policy', { PolicyName: 'nakostat-pi-policy-prod' });
     template.hasResourceProperties('AWS::IoT::Policy', { PolicyName: 'nakostat-esp32-policy-prod' });
+    template.hasResourceProperties('AWS::IoT::Thing', { ThingName: 'nakostat-pish-prod' });
+    template.hasResourceProperties('AWS::IoT::Policy', { PolicyName: 'nakostat-pish-policy-prod' });
   });
 });
