@@ -25,6 +25,7 @@
 #include "OTAUpdate.h"
 #include "BluetoothOTA.h"
 #include "BoilerController.h"
+#include "BoilerCommand.h"
 
 #include "version.h"
 #include "secrets.h"
@@ -135,20 +136,18 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     Serial.printf("MQTT rx [%s] %u bytes\n", topic, length);
     if (strcmp(topic, MQTT_COMMAND_TOPIC) != 0) return;
 
-    StaticJsonDocument<128> doc;
-    DeserializationError err = deserializeJson(doc, payload, length);
-    if (err) {
-        Serial.printf("MQTT JSON parse error: %s\n", err.c_str());
-        if (sdCardReady) LOG_WF("MQTT JSON parse error: %s", err.c_str());
+    BoilerCommand cmd = parseBoilerCommand(payload, length);
+    if (cmd.result == BoilerCommandResult::InvalidJson) {
+        Serial.printf("MQTT JSON parse error: %s\n", cmd.error);
+        if (sdCardReady) LOG_WF("MQTT JSON parse error: %s", cmd.error);
         return;
     }
-
-    if (!doc.containsKey("on") || !doc["on"].is<bool>()) {
+    if (cmd.result == BoilerCommandResult::MissingOn) {
         Serial.println("MQTT command missing 'on' bool");
         return;
     }
 
-    bool on = doc["on"].as<bool>();
+    bool on = cmd.on;
     bool wasOn = boiler.isOn();
     boiler.setOn(on);
     if (sdCardReady) LOG_IF("Boiler %s (was %s)", on ? "ON" : "OFF", wasOn ? "ON" : "OFF");
