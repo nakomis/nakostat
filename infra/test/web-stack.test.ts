@@ -1,7 +1,8 @@
+import * as fs from 'node:fs';
 import * as cdk from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
-import { WebStack } from '../lib/web-stack';
+import { FORM_LOGO_PATH, WebStack } from '../lib/web-stack';
 
 const MOCK_CERT_ARN =
   'arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000';
@@ -124,6 +125,31 @@ describe('WebStack — sandbox', () => {
       UseCognitoProvidedValues: false,
       ClientId: Match.anyValue(),
     });
+  });
+
+  test('managed login form shows the Nakostat logo', () => {
+    template.hasResourceProperties('AWS::Cognito::ManagedLoginBranding', {
+      Settings: Match.objectLike({
+        components: Match.objectLike({
+          form: Match.objectLike({
+            logo: { location: 'CENTER', position: 'TOP', enabled: true, formInclusion: 'IN' },
+          }),
+        }),
+      }),
+      Assets: [
+        {
+          Category: 'FORM_LOGO',
+          ColorMode: 'DARK',
+          Extension: 'PNG',
+          Bytes: fs.readFileSync(FORM_LOGO_PATH).toString('base64'),
+        },
+      ],
+    });
+  });
+
+  test('form logo stays under 40 KB base64 (template is inlined, 1 MB limit)', () => {
+    const bytes = fs.readFileSync(FORM_LOGO_PATH).toString('base64');
+    expect(bytes.length).toBeLessThan(40 * 1024);
   });
 
   test('publishes client ID to SSM', () => {
