@@ -1,0 +1,143 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "minimumReleaseAge": "1 day",
+  "timezone": "Europe/London",
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "prConcurrentLimit": 5,
+  "automerge": false,
+  "separateMajorMinor": true,
+  "enabledManagers": [
+    "npm",
+    "cargo",
+    "pip_requirements",
+    "github-actions",
+    "asdf",
+    "rust-toolchain",
+    "custom.regex"
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 6am on the first day of the month"
+    ]
+  },
+  "customManagers": [
+    {
+      "description": "Biome version in the biome.json $schema URL (CI checks web and infra agree)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)biome\\.json$/"
+      ],
+      "matchStrings": [
+        "\"\\$schema\":\\s*\"https://biomejs\\.dev/schemas/(?<currentValue>[^/]+)/schema\\.json\""
+      ],
+      "depNameTemplate": "@biomejs/biome",
+      "datasourceTemplate": "npm"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Non-major web dependencies in one PR",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchFileNames": [
+        "web/**"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "web non-major dependencies"
+    },
+    {
+      "description": "Non-major infra dependencies in one PR",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchFileNames": [
+        "infra/**"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "infra non-major dependencies"
+    },
+    {
+      "description": "AWS SDK and CDK CLI/library together so synth stays in step",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "/^@aws-sdk//",
+        "aws-cdk",
+        "aws-cdk-lib"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "AWS"
+    },
+    {
+      "description": "GitHub Actions minor/patch in one PR",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "groupName": "GitHub Actions non-major"
+    },
+    {
+      "description": "pnpm: packageManager in both package.json files and .tool-versions must move together (CI toolchain job)",
+      "matchPackageNames": [
+        "pnpm"
+      ],
+      "groupName": "pnpm"
+    },
+    {
+      "description": "Biome: the dependency and both biome.json $schema versions must move together (CI toolchain job)",
+      "matchPackageNames": [
+        "@biomejs/biome"
+      ],
+      "groupName": "Biome"
+    },
+    {
+      "description": "Rust: .tool-versions and sensor-daemon/rust-toolchain.toml must name the same compiler",
+      "matchManagers": [
+        "asdf",
+        "rust-toolchain"
+      ],
+      "matchPackageNames": [
+        "rust"
+      ],
+      "groupName": "Rust toolchain"
+    },
+    {
+      "description": "Python 3.11 is pinned deliberately (TensorFlow does not support newer); do not bump it in .tool-versions",
+      "matchManagers": [
+        "asdf"
+      ],
+      "matchPackageNames": [
+        "python"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "@aws-sdk/xml-builder is pinned to 3.972.19 in infra/pnpm-workspace.yaml (NAKO-35: later versions need pure-ESM @nodable/entities); leave the pin alone",
+      "matchPackageNames": [
+        "@aws-sdk/xml-builder"
+      ],
+      "enabled": false
+    }
+  ]
+}
