@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as cdk from 'aws-cdk-lib';
 import type * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
@@ -13,6 +15,9 @@ export interface WebStackProps extends cdk.StackProps {
   deployEnv: 'sandbox' | 'prod';
   certificate: acm.ICertificate;
 }
+
+// 150×150 palette PNG, base64-inlined into the template — keep it small (CloudFormation's 1 MB limit).
+export const FORM_LOGO_PATH = path.join(__dirname, '../assets/nakostat-logo-150.png');
 
 const HOSTED_ZONES = {
   sandbox: { hostedZoneId: 'Z03586633NXU18LFL0JTL', zoneName: 'sandbox.nakomis.com' },
@@ -73,7 +78,7 @@ export class WebStack extends cdk.Stack {
           form: {
             borderRadius: 8,
             backgroundImage: { enabled: false },
-            logo: { location: 'CENTER', position: 'TOP', enabled: false, formInclusion: 'IN' },
+            logo: { location: 'CENTER', position: 'TOP', enabled: true, formInclusion: 'IN' },
             darkMode: { backgroundColor: '2c313aff', borderColor: '3e4451ff' },
           },
           pageText: {
@@ -175,6 +180,14 @@ export class WebStack extends cdk.Stack {
           },
         },
       },
+      assets: [
+        {
+          category: 'FORM_LOGO',
+          colorMode: 'DARK',
+          extension: 'PNG',
+          bytes: fs.readFileSync(FORM_LOGO_PATH).toString('base64'),
+        },
+      ],
     });
     branding.node.addDependency(client);
 
