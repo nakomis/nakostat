@@ -3,6 +3,7 @@
   "extends": [
     "config:recommended"
   ],
+  "minimumReleaseAge": "1 day",
   "timezone": "Europe/London",
   "schedule": [
     "before 6am on monday"
@@ -120,6 +121,23 @@
         "rust"
       ],
       "groupName": "Rust toolchain"
+    },
+    {
+      "description": "Python 3.11 is pinned deliberately (TensorFlow does not support newer); do not bump it in .tool-versions",
+      "matchManagers": [
+        "asdf"
+      ],
+      "matchPackageNames": [
+        "python"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "@aws-sdk/xml-builder is pinned to 3.972.19 in infra/pnpm-workspace.yaml (NAKO-35: later versions need pure-ESM @nodable/entities); leave the pin alone",
+      "matchPackageNames": [
+        "@aws-sdk/xml-builder"
+      ],
+      "enabled": false
     }
   ]
 }
