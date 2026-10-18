@@ -7,6 +7,8 @@ pub struct Config {
     pub mqtt: MqttConfig,
     pub sensor: SensorConfig,
     pub socket: SocketConfig,
+    #[serde(default)]
+    pub schedule: ScheduleConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -29,6 +31,19 @@ pub struct SensorConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SocketConfig {
     pub path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ScheduleConfig {
+    pub path: String,
+}
+
+impl Default for ScheduleConfig {
+    fn default() -> Self {
+        Self {
+            path: "/var/lib/nakostat/schedule.json".to_string(),
+        }
+    }
 }
 
 impl Config {
@@ -87,6 +102,9 @@ impl Config {
         if let Ok(v) = var("NAKOSTAT_SOCKET_PATH") {
             self.socket.path = v;
         }
+        if let Ok(v) = var("NAKOSTAT_SCHEDULE_PATH") {
+            self.schedule.path = v;
+        }
     }
 }
 
@@ -142,6 +160,24 @@ path = "/run/nakostat/sensor.sock"
         assert_eq!(cfg.sensor.publish_interval_s, 30);
         assert_eq!(cfg.sensor.warmup_s, 180);
         assert_eq!(cfg.socket.path, "/run/nakostat/sensor.sock");
+        assert_eq!(cfg.schedule.path, "/var/lib/nakostat/schedule.json");
+    }
+
+    #[test]
+    fn schedule_path_from_toml_and_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let toml = format!("{VALID_TOML}\n[schedule]\npath = \"/tmp/s.json\"\n");
+        let (_f, path) = write_toml(&toml);
+        assert_eq!(
+            Config::from_file(&path).unwrap().schedule.path,
+            "/tmp/s.json"
+        );
+        // SAFETY: ENV_LOCK serialises every test that touches the environment.
+        unsafe { std::env::set_var("NAKOSTAT_SCHEDULE_PATH", "/tmp/env.json") };
+        let cfg = Config::from_file(&path).unwrap();
+        // SAFETY: ENV_LOCK serialises every test that touches the environment.
+        unsafe { std::env::remove_var("NAKOSTAT_SCHEDULE_PATH") };
+        assert_eq!(cfg.schedule.path, "/tmp/env.json");
     }
 
     #[test]

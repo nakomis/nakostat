@@ -16,3 +16,6 @@ warmup_s           = 180     # ENS160 needs ~3 min to stabilise on cold start
 
 [socket]
 path = "/run/nakostat/sensor.sock"
+
+[schedule]
+path = "/var/lib/nakostat/schedule.json"   # daemon-owned heating schedule (JSON)

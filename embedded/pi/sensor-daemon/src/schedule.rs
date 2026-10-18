@@ -8,12 +8,20 @@
 //! last entry (get this wrong and the house is cold every morning before the
 //! first entry).
 //!
-//! For the MVP the schedule is hard-coded ([`default_schedule`]). Later stories
-//! make it stored, editable and selectable (STAT-46 onwards); the data shape
-//! here is chosen so that becomes "swap the source of the rules", not a rewrite.
+//! The daemon is the source of truth for the schedule: it is persisted to disk
+//! as a day-keyed JSON map (see [`load_or_default`]) and falls back to the
+//! hard-coded [`default_schedule`] if the file is missing or unreadable.
+//!
+//! ```json
+//! { "Mon": [ {"at":"07:00","targetC":20.0}, {"at":"22:00","targetC":14.0} ], "Tue": [], ... }
+//! ```
 
+use anyhow::{Context, Result};
 use chrono::{DateTime, Datelike, TimeZone, Timelike};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::BTreeMap;
+use std::path::Path;
+use tracing::{error, info, warn};
 
 const MINUTES_PER_DAY: i32 = 1440;
 
@@ -61,8 +69,13 @@ impl From<chrono::Weekday> for DayOfWeek {
     }
 }
 
-/// A time of day as minutes since local midnight (0..=1439).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+/// Lowest and highest target temperatures accepted from a stored schedule.
+pub const MIN_TARGET_C: f32 = 0.0;
+pub const MAX_TARGET_C: f32 = 30.0;
+
+/// A time of day as minutes since local midnight (0..=1439). Serialised as
+/// `"HH:MM"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TimeOfDay(u16);
 
 impl TimeOfDay {
@@ -78,10 +91,41 @@ impl TimeOfDay {
     pub fn minutes(self) -> u16 {
         self.0
     }
+
+    /// Parse `"HH:MM"` (hours 0–23, minutes 0–59).
+    pub fn parse(s: &str) -> Option<Self> {
+        let (h, m) = s.split_once(':')?;
+        if h.is_empty() || h.len() > 2 || m.len() != 2 {
+            return None;
+        }
+        let (h, m) = (h.parse::<u8>().ok()?, m.parse::<u8>().ok()?);
+        (h < 24 && m < 60).then(|| TimeOfDay::new(h, m))
+    }
+}
+
+impl std::fmt::Display for TimeOfDay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:02}:{:02}", self.0 / 60, self.0 % 60)
+    }
+}
+
+impl Serialize for TimeOfDay {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for TimeOfDay {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        TimeOfDay::parse(&s)
+            .ok_or_else(|| serde::de::Error::custom(format!("invalid time {s:?}, expected HH:MM")))
+    }
 }
 
 /// A single transition point: from `at`, hold `target_c` until the next entry.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScheduleEntry {
     pub at: TimeOfDay,
     pub target_c: f32,
@@ -100,10 +144,69 @@ impl Schedule {
     }
 
     /// Add a transition point to a day, keeping that day's entries time-sorted.
+    /// An existing entry at the same time is replaced (last wins).
     pub fn add(&mut self, day: DayOfWeek, at: TimeOfDay, target_c: f32) {
         let entries = &mut self.days[day.index() as usize];
+        entries.retain(|e| e.at != at);
         entries.push(ScheduleEntry { at, target_c });
         entries.sort_by_key(|e| e.at.minutes());
+    }
+
+    /// Parse the day-keyed JSON form. Fails only if the document is not a JSON
+    /// object; individual invalid entries (bad day key, bad `"HH:MM"`, `targetC`
+    /// outside 0–30 °C) are dropped and described in the returned warnings.
+    pub fn from_json(text: &str) -> Result<(Self, Vec<String>)> {
+        let raw: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(text).context("schedule is not a JSON object")?;
+        let mut schedule = Schedule::new();
+        let mut warnings = Vec::new();
+        for (key, value) in raw {
+            let Ok(day) =
+                serde_json::from_value::<DayOfWeek>(serde_json::Value::String(key.clone()))
+            else {
+                warnings.push(format!("unknown day {key:?}, ignoring its entries"));
+                continue;
+            };
+            let serde_json::Value::Array(items) = value else {
+                warnings.push(format!("{key}: expected a list of entries, ignoring"));
+                continue;
+            };
+            for item in items {
+                match serde_json::from_value::<ScheduleEntry>(item.clone()) {
+                    Err(e) => warnings.push(format!("{key}: dropping invalid entry {item}: {e}")),
+                    Ok(e) if !(MIN_TARGET_C..=MAX_TARGET_C).contains(&e.target_c) => {
+                        warnings.push(format!(
+                            "{key} {}: targetC {} outside 0–30 °C, dropping",
+                            e.at, e.target_c
+                        ))
+                    }
+                    Ok(e) => schedule.add(day, e.at, e.target_c),
+                }
+            }
+        }
+        Ok((schedule, warnings))
+    }
+
+    /// Serialise to the day-keyed JSON form (all seven days, Mon..Sun).
+    pub fn to_json(&self) -> String {
+        let map: BTreeMap<DayOfWeek, &[ScheduleEntry]> = DayOfWeek::ALL
+            .into_iter()
+            .map(|d| (d, self.entries(d)))
+            .collect();
+        serde_json::to_string_pretty(&map).expect("schedule serialisation cannot fail")
+    }
+
+    /// Write the schedule to `path` atomically (temp file + rename), creating
+    /// the parent directory if needed.
+    pub fn save(&self, path: &Path) -> Result<()> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("creating directory {}", dir.display()))?;
+        }
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, self.to_json())
+            .with_context(|| format!("writing {}", tmp.display()))?;
+        std::fs::rename(&tmp, path).with_context(|| format!("renaming to {}", path.display()))
     }
 
     /// The transition points for a given day, time-sorted.
@@ -153,8 +256,51 @@ fn abs_minute(day: DayOfWeek, tod: TimeOfDay) -> i32 {
     day.index() as i32 * MINUTES_PER_DAY + tod.minutes() as i32
 }
 
-/// The MVP hard-coded schedule (STAT-45). Replaced by stored, editable
-/// schedules in STAT-46 onwards.
+/// Load the schedule from `path`.
+///
+/// - Missing file: use [`default_schedule`] and write it out, so the user has
+///   something to edit.
+/// - Unreadable or corrupt file: use [`default_schedule`], log an error and
+///   leave the file alone for diagnosis.
+/// - Invalid individual entries are dropped with a warning each.
+pub fn load_or_default(path: &Path) -> Schedule {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            info!("No schedule at {}, writing the default", path.display());
+            let schedule = default_schedule();
+            if let Err(e) = schedule.save(path) {
+                warn!("Could not write default schedule: {e:#}");
+            }
+            return schedule;
+        }
+        Err(e) => {
+            error!(
+                "Reading schedule {} failed: {e}; using the default",
+                path.display()
+            );
+            return default_schedule();
+        }
+    };
+    match Schedule::from_json(&text) {
+        Ok((schedule, warnings)) => {
+            for w in &warnings {
+                warn!("Schedule {}: {w}", path.display());
+            }
+            info!("Loaded heating schedule from {}", path.display());
+            schedule
+        }
+        Err(e) => {
+            error!(
+                "Schedule {} is corrupt ({e:#}); using the default",
+                path.display()
+            );
+            default_schedule()
+        }
+    }
+}
+
+/// The built-in fallback schedule, used when no stored schedule is available.
 ///
 /// - Weekdays: 20 °C from 07:00, setback to 16 °C from 09:00 (out), back to
 ///   20 °C from 17:00, 14 °C overnight from 22:00.
@@ -281,6 +427,151 @@ mod tests {
         let e = s.entries(DayOfWeek::Mon);
         assert_eq!(e[0].at, tod(7, 0));
         assert_eq!(e[1].at, tod(22, 0));
+    }
+
+    #[test]
+    fn add_same_time_last_wins() {
+        let mut s = Schedule::new();
+        s.add(DayOfWeek::Mon, tod(7, 0), 20.0);
+        s.add(DayOfWeek::Mon, tod(7, 0), 18.0);
+        assert_eq!(
+            s.entries(DayOfWeek::Mon),
+            &[ScheduleEntry {
+                at: tod(7, 0),
+                target_c: 18.0
+            }]
+        );
+    }
+
+    #[test]
+    fn time_of_day_parse_and_display() {
+        assert_eq!(TimeOfDay::parse("07:00"), Some(tod(7, 0)));
+        assert_eq!(TimeOfDay::parse("7:05"), Some(tod(7, 5)));
+        assert_eq!(TimeOfDay::parse("23:59"), Some(tod(23, 59)));
+        for bad in [
+            "24:00", "12:60", "12", "12:5", ":30", "ab:cd", "-1:00", "123:00",
+        ] {
+            assert_eq!(TimeOfDay::parse(bad), None, "{bad}");
+        }
+        assert_eq!(tod(7, 5).to_string(), "07:05");
+    }
+
+    #[test]
+    fn json_round_trip() {
+        let s = default_schedule();
+        let json = s.to_json();
+        let (back, warnings) = Schedule::from_json(&json).unwrap();
+        assert!(warnings.is_empty());
+        for d in DayOfWeek::ALL {
+            assert_eq!(back.entries(d), s.entries(d));
+        }
+    }
+
+    #[test]
+    fn json_shape_is_day_keyed_with_hh_mm() {
+        let mut s = Schedule::new();
+        s.add(DayOfWeek::Mon, tod(7, 0), 20.0);
+        let v: serde_json::Value = serde_json::from_str(&s.to_json()).unwrap();
+        assert_eq!(
+            v["Mon"],
+            serde_json::json!([{"at": "07:00", "targetC": 20.0}])
+        );
+        assert_eq!(v["Sun"], serde_json::json!([]));
+        assert_eq!(v.as_object().unwrap().len(), 7);
+    }
+
+    #[test]
+    fn from_json_drops_invalid_entries_and_keeps_the_rest() {
+        let json = r#"{
+            "Mon": [ {"at":"22:00","targetC":14.0}, {"at":"07:00","targetC":20.0},
+                     {"at":"25:00","targetC":20.0}, {"at":"08:00","targetC":31.0},
+                     {"at":"09:00","targetC":-1.0}, {"at":"07:00","targetC":19.5} ],
+            "Funday": [ {"at":"07:00","targetC":20.0} ],
+            "Tue": "nope"
+        }"#;
+        let (s, warnings) = Schedule::from_json(json).unwrap();
+        // Sorted, duplicate 07:00 resolved last-wins.
+        assert_eq!(
+            s.entries(DayOfWeek::Mon),
+            &[
+                ScheduleEntry {
+                    at: tod(7, 0),
+                    target_c: 19.5
+                },
+                ScheduleEntry {
+                    at: tod(22, 0),
+                    target_c: 14.0
+                },
+            ]
+        );
+        assert!(s.entries(DayOfWeek::Tue).is_empty());
+        assert_eq!(warnings.len(), 5, "{warnings:?}");
+    }
+
+    #[test]
+    fn from_json_accepts_boundary_targets() {
+        let json = r#"{"Mon":[{"at":"00:00","targetC":0.0},{"at":"12:00","targetC":30.0}]}"#;
+        let (s, warnings) = Schedule::from_json(json).unwrap();
+        assert!(warnings.is_empty());
+        assert_eq!(s.entries(DayOfWeek::Mon).len(), 2);
+    }
+
+    #[test]
+    fn from_json_rejects_non_object() {
+        assert!(Schedule::from_json("[]").is_err());
+        assert!(Schedule::from_json("{not json").is_err());
+    }
+
+    #[test]
+    fn load_missing_file_writes_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sub/schedule.json");
+        let s = load_or_default(&path);
+        assert_eq!(
+            s.entries(DayOfWeek::Mon),
+            default_schedule().entries(DayOfWeek::Mon)
+        );
+        let (written, _) = Schedule::from_json(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            written.entries(DayOfWeek::Sat),
+            default_schedule().entries(DayOfWeek::Sat)
+        );
+    }
+
+    #[test]
+    fn load_corrupt_file_uses_default_and_leaves_file_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("schedule.json");
+        std::fs::write(&path, "{corrupt").unwrap();
+        let s = load_or_default(&path);
+        assert_eq!(
+            s.entries(DayOfWeek::Fri),
+            default_schedule().entries(DayOfWeek::Fri)
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{corrupt");
+    }
+
+    #[test]
+    fn load_unreadable_path_uses_default() {
+        // A directory where the file should be: read fails with a non-NotFound error.
+        let dir = tempfile::tempdir().unwrap();
+        let s = load_or_default(dir.path());
+        assert_eq!(
+            s.entries(DayOfWeek::Mon),
+            default_schedule().entries(DayOfWeek::Mon)
+        );
+    }
+
+    #[test]
+    fn save_then_load_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("schedule.json");
+        let mut s = Schedule::new();
+        s.add(DayOfWeek::Sat, tod(9, 30), 21.5);
+        s.save(&path).unwrap();
+        let loaded = load_or_default(&path);
+        assert_eq!(loaded.entries(DayOfWeek::Sat), s.entries(DayOfWeek::Sat));
+        assert!(loaded.entries(DayOfWeek::Mon).is_empty());
     }
 
     #[test]
