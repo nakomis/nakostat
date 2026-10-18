@@ -47,10 +47,9 @@ async fn main() -> Result<()> {
     #[cfg(not(feature = "real-sensor"))]
     let mut reader: Box<dyn SensorReader> = Box::new(MockSensorReader::default());
 
-    // Hard-coded heating schedule (STAT-45). Later stories make this stored and
-    // editable (STAT-46+); the daemon is the source of truth for the setpoint.
-    let schedule = schedule::default_schedule();
-    info!("Loaded hard-coded heating schedule");
+    // The daemon is the source of truth for the schedule, persisted locally so
+    // it survives reboots and works offline (STAT-46).
+    let schedule = schedule::load_or_default(std::path::Path::new(&cfg.schedule.path));
 
     let warmup = std::time::Duration::from_secs(cfg.sensor.warmup_s);
     let interval = std::time::Duration::from_secs(cfg.sensor.publish_interval_s);

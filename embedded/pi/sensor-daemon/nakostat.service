@@ -12,6 +12,7 @@ ExecStart=/opt/nakostat/nakostat --config /etc/nakostat/nakostat.toml
 Restart=on-failure
 RestartSec=10
 RuntimeDirectory=nakostat
+StateDirectory=nakostat
 StandardOutput=file:/var/log/nakostat/nakostat.log
 StandardError=journal
 
