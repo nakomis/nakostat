@@ -10,6 +10,7 @@
 #include "esp_app_desc.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -22,6 +23,7 @@
 #include "net.h"
 #include "nvs.h"
 #include "ota.h"
+#include "report.h"
 #include "schedule.h"
 #include "status_json.h"
 #include "switch_in.h"
@@ -30,7 +32,7 @@ static const char *TAG = "app";
 
 #define NVS_NAMESPACE "heatlink"
 #define NVS_KEY_SCHEDULE "schedule"
-#define SCHEDULE_FORMAT 1  // the stored blob's layout; bump when hl_schedule changes
+#define SCHEDULE_FORMAT 2  // the stored blob's layout; bump when hl_schedule changes (2: enabled)
 
 // Fleet's largest message is an ota_update of at most ~1500 bytes (longer URLs come as url_chunks);
 // a full set_schedule is under 2 KB (tests/test_hl_cmd.py). Anything longer is refused.
@@ -38,7 +40,6 @@ static const char *TAG = "app";
 #define QUEUE_LEN 8
 #define TASK_STACK 8192  // cJSON and the command parsers run here, not on the MQTT task
 #define TASK_PRIORITY 5
-#define HEARTBEAT_MS 60000
 #define RESTART_DELAY_MS 2000  // for the response to reach IoT Core first
 #define STATUS_MAX 384
 
@@ -63,8 +64,8 @@ static bool schedule_known;
 static hl_debounce debounce;
 static hl_output current;
 static bool time_valid;
-static bool healthy, mqtt_was_up, boot_reported;
-static int64_t last_heartbeat_ms;
+static bool healthy;
+static hl_reporter reporter;  // when to publish /status (report.h)
 
 static int64_t now_ms(void)
 {
@@ -132,7 +133,8 @@ static esp_err_t store_schedule(const hl_schedule *s)
 
 // ---- status and responses -----------------------------------------------------------------------
 
-static void publish_status(hl_reason reason)
+// Returns whether the status was queued.
+static bool publish_status(hl_reason reason)
 {
     int64_t now = now_ms();
     int rssi = net_rssi();
@@ -155,10 +157,11 @@ static void publish_status(hl_reason reason)
     if (hl_status_json(text, sizeof(text), &v) < 0)
     {
         ESP_LOGE(TAG, "status doesn't fit %u bytes", (unsigned)sizeof(text));
-        return;
+        return false;
     }
-    if (net_publish_status(text))
-        last_heartbeat_ms = now;  // any status resets the heartbeat
+    bool ok = net_publish_status(text);
+    hl_report_sent(&reporter, now, reason, ok);
+    return ok;
 }
 
 // {"type":..., "message":...}, plus "status" for a command's own result (Fleet's envelope).
@@ -195,8 +198,9 @@ static void set_schedule(const hl_schedule *s)
     schedule_known = true;
     if (tz_changed)
         hl_tz_apply(schedule.tz);
-    ESP_LOGI(TAG, "schedule received: comfort %d centi-degC, duty %u%%, tz %s", schedule.comfort_centi,
-             schedule.duty_pct, schedule.tz);
+    ESP_LOGI(TAG, "schedule received: %s, comfort %d centi-degC, duty %u%%, tz %s",
+             schedule.enabled ? "enabled" : "disabled (fallback off)", schedule.comfort_centi, schedule.duty_pct,
+             schedule.tz);
     respond("set_schedule_result", err == ESP_OK ? "ok" : "error", err == ESP_OK ? "stored" : "not stored: kept until reboot");
 }
 
@@ -207,13 +211,22 @@ static void handle_command(const char *json, size_t len)
     switch (cmd.kind)
     {
     case HL_CMD_DEMAND:
+    {
         // No reply: the daemon sends one every 30 s. /status says what came of it.
+        time_t wall = time(NULL);
+        if (hl_demand_too_old(cmd.has_ts, cmd.ts, hl_time_valid((int64_t)wall), (int64_t)wall))
+        {
+            // Replayed from a queue after an outage, say: following it would refresh a stale wish.
+            ESP_LOGW(TAG, "demand from %lld s ago ignored", (long long)((int64_t)wall - cmd.ts));
+            break;
+        }
         if (!demand.have || demand.on != cmd.on || demand.source != cmd.source)
             ESP_LOGI(TAG, "demand %s (%s), ttl %u s", cmd.on ? "on" : "off", hl_source_name(cmd.source),
                      (unsigned)cmd.ttl_s);
         demand = (hl_demand){.have = true, .on = cmd.on, .source = cmd.source, .received_ms = now_ms(),
                              .ttl_s = cmd.ttl_s};
         break;
+    }
     case HL_CMD_SET_SCHEDULE:
         set_schedule(&cmd.schedule);
         break;
@@ -270,8 +283,15 @@ static bool step(void)
 static void app_task(void *arg)
 {
     (void)arg;
+    // The task watchdog (sdkconfig: 5 s, panic) restarts the heatlink if this loop ever hangs, and
+    // a restart leaves the relay off. Nothing here may block for long: commands are parsed in RAM,
+    // NVS writes take milliseconds, publishing only copies into the network's queue (net.h), and
+    // the OTA download runs in its own task. The longest legitimate wait is the 2 s before a
+    // reboot.
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
     for (;;)
     {
+        esp_task_wdt_reset();
         app_event ev;
         if (xQueueReceive(queue, &ev, pdMS_TO_TICKS(HL_SWITCH_POLL_MS)) == pdTRUE)
         {
@@ -280,18 +300,9 @@ static void app_task(void *arg)
         }
         bool changed = step();
 
-        bool mqtt = net_mqtt_connected();
-        if (mqtt && !mqtt_was_up)
-        {
-            // After every (re)connect: the first since boot says so.
-            publish_status(boot_reported ? HL_REASON_HEARTBEAT : HL_REASON_BOOT);
-            boot_reported = true;
-        }
-        else if (mqtt && changed)
-            publish_status(HL_REASON_CHANGE);
-        else if (mqtt && now_ms() - last_heartbeat_ms >= HEARTBEAT_MS)
-            publish_status(HL_REASON_HEARTBEAT);
-        mqtt_was_up = mqtt;
+        hl_reason reason;
+        if (hl_report_due(&reporter, now_ms(), net_mqtt_connected(), changed, net_status_acked(), &reason))
+            publish_status(reason);
 
         // The image is healthy once it can hear Fleet (subscribed, not just connected).
         if (!healthy && net_subscribed())
@@ -306,6 +317,7 @@ void app_start(void)
 {
     io_init();
 
+    hl_report_init(&reporter);
     hl_schedule_init(&schedule);
     schedule_known = load_schedule(&schedule);
     if (!schedule_known)

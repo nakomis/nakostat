@@ -8,6 +8,7 @@
 
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_event.h"
@@ -17,6 +18,8 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
 #include "mqtt_client.h"
 
 static const char *TAG = "net";
@@ -30,6 +33,21 @@ extern const char root_ca_start[] asm("_binary_AmazonRootCA1_pem_start");
 // Fleet's commands can carry a presigned URL of ~1.5 KB (longer ones arrive in chunks).
 #define MQTT_BUFFER_SIZE 4096
 
+// Outgoing messages go through a queue to the tx task, which hands them to the MQTT client. The
+// client's lock can be held for seconds (a TLS reconnect, or a write on a dead link waits up to
+// its 10 s network timeout), and the app task, which drives the relay and is watched by the task
+// watchdog, must never wait on it.
+#define TX_QUEUE_LEN 8
+#define TX_TASK_STACK 4096
+#define TX_TASK_PRIORITY 5
+
+typedef struct
+{
+    bool status;    // for .../status (else .../responses)
+    uint32_t seq;   // a status's sequence number
+    char *json;     // malloc'd; the tx task frees it
+} tx_msg;
+
 static const prov_t *prov;
 static net_command_cb command_cb;
 static char commands_topic[sizeof(prov->thing_name) + 32];
@@ -42,13 +60,36 @@ static volatile bool mqtt_subscribed;  // IoT Core granted the commands subscrip
 static esp_timer_handle_t wifi_retry;
 static uint32_t wifi_retry_ms = WIFI_RETRY_MIN_MS;
 static bool started;
+static QueueHandle_t tx_queue;
+
+// Acknowledgement of the latest status (net_status_acked). status_seq counts the statuses queued
+// (written only by the app task); the tx task records the MQTT msg id of the latest one it handed
+// over, and its PUBACK (MQTT task) copies that one's seq into acked_seq.
+static portMUX_TYPE ack_lock = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t status_seq, status_msg_seq, acked_seq;
+static int status_msg_id = -1;
+
+static void wifi_retry_fire(void *arg);
+
+// Arms the next Wi-Fi attempt, doubling the wait each time up to WIFI_RETRY_MAX_MS.
+static void wifi_retry_later(void)
+{
+    esp_err_t err = esp_timer_start_once(wifi_retry, (uint64_t)wifi_retry_ms * 1000);
+    if (err != ESP_OK)
+        ESP_LOGW(TAG, "Wi-Fi retry timer: %s", esp_err_to_name(err));
+    wifi_retry_ms = wifi_retry_ms * 2 > WIFI_RETRY_MAX_MS ? WIFI_RETRY_MAX_MS : wifi_retry_ms * 2;
+}
 
 static void wifi_retry_fire(void *arg)
 {
     (void)arg;
     esp_err_t err = esp_wifi_connect();
     if (err != ESP_OK)
-        ESP_LOGW(TAG, "esp_wifi_connect: %s", esp_err_to_name(err));
+    {
+        // No attempt started, so no DISCONNECTED event will come to arm the next one: arm it here.
+        ESP_LOGW(TAG, "esp_wifi_connect: %s; retrying in %" PRIu32 " ms", esp_err_to_name(err), wifi_retry_ms);
+        wifi_retry_later();
+    }
 }
 
 static void wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data)
@@ -63,8 +104,7 @@ static void wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         mqtt_subscribed = false;
         ESP_LOGW(TAG, "Wi-Fi disconnected (reason %d), retrying in %" PRIu32 " ms",
                  ((wifi_event_sta_disconnected_t *)data)->reason, wifi_retry_ms);
-        esp_timer_start_once(wifi_retry, (uint64_t)wifi_retry_ms * 1000);
-        wifi_retry_ms = wifi_retry_ms * 2 > WIFI_RETRY_MAX_MS ? WIFI_RETRY_MAX_MS : wifi_retry_ms * 2;
+        wifi_retry_later();
     }
     else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP)
     {
@@ -121,6 +161,10 @@ static void mqtt_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         break;
     case MQTT_EVENT_PUBLISHED:
         ESP_LOGI(TAG, "msg %d acknowledged by IoT Core", event->msg_id);
+        taskENTER_CRITICAL(&ack_lock);
+        if (event->msg_id == status_msg_id)
+            acked_seq = status_msg_seq;
+        taskEXIT_CRITICAL(&ack_lock);
         break;
     case MQTT_EVENT_ERROR:
         if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT)
@@ -147,6 +191,33 @@ static void mqtt_event(void *arg, esp_event_base_t base, int32_t id, void *data)
             return false;                                                     \
         }                                                                     \
     } while (0)
+
+// Hands queued messages to the MQTT client (QoS 1, not retained). The outbox drops anything unsent
+// after CONFIG_MQTT_OUTBOX_EXPIRED_TIMEOUT_MS.
+static void tx_task(void *arg)
+{
+    (void)arg;
+    for (;;)
+    {
+        tx_msg m;
+        if (xQueueReceive(tx_queue, &m, portMAX_DELAY) != pdTRUE)
+            continue;
+        const char *topic = m.status ? status_topic : responses_topic;
+        int msg_id = esp_mqtt_client_enqueue(mqtt, topic, m.json, 0, 1, 0, true);
+        if (m.status)
+        {
+            taskENTER_CRITICAL(&ack_lock);
+            status_msg_id = msg_id;
+            status_msg_seq = m.seq;
+            taskEXIT_CRITICAL(&ack_lock);
+        }
+        if (msg_id < 0)
+            ESP_LOGW(TAG, "MQTT client refused a message for %s", topic);
+        else
+            ESP_LOGI(TAG, "queued for %s (msg %d): %s", topic, msg_id, m.json);
+        free(m.json);
+    }
+}
 
 bool net_start(const prov_t *p, net_command_cb on_command)
 {
@@ -209,6 +280,12 @@ bool net_start(const prov_t *p, net_command_cb on_command)
         ESP_LOGE(TAG, "esp_mqtt_client_init failed; network off");
         return false;
     }
+    tx_queue = xQueueCreate(TX_QUEUE_LEN, sizeof(tx_msg));
+    if (tx_queue == NULL || xTaskCreate(tx_task, "mqtt_tx", TX_TASK_STACK, NULL, TX_TASK_PRIORITY, NULL) != pdPASS)
+    {
+        ESP_LOGE(TAG, "no memory for the MQTT tx task; network off");
+        return false;
+    }
     TRY(esp_mqtt_client_register_event(mqtt, ESP_EVENT_ANY_ID, mqtt_event, NULL));
     TRY(esp_mqtt_client_start(mqtt));
     started = true;
@@ -217,28 +294,43 @@ bool net_start(const prov_t *p, net_command_cb on_command)
     return true;
 }
 
-// Enqueued for the MQTT task to send, so the caller doesn't wait on the network. QoS 1, not
-// retained; the outbox drops anything unsent after CONFIG_MQTT_OUTBOX_EXPIRED_TIMEOUT_MS.
-static bool publish(const char *topic, const char *json)
+// Queued for the tx task, so the caller never waits on the network or the MQTT client's lock.
+static bool publish(bool status, const char *json)
 {
+    const char *topic = status ? status_topic : responses_topic;
     if (!started || !mqtt_connected)
     {
         ESP_LOGW(TAG, "not connected: message for %s dropped", topic);
         return false;
     }
-    int msg_id = esp_mqtt_client_enqueue(mqtt, topic, json, 0, 1, 0, true);
-    ESP_LOGI(TAG, "queued for %s (msg %d): %s", topic, msg_id, json);
-    return msg_id >= 0;
+    tx_msg m = {.status = status, .seq = status ? status_seq + 1 : 0, .json = strdup(json)};
+    if (m.json == NULL || xQueueSend(tx_queue, &m, 0) != pdTRUE)
+    {
+        ESP_LOGW(TAG, "%s: message for %s dropped", m.json == NULL ? "out of memory" : "tx queue full", topic);
+        free(m.json);
+        return false;
+    }
+    if (status)
+        status_seq = m.seq;  // only the app task publishes statuses
+    return true;
 }
 
 bool net_respond(const char *json)
 {
-    return publish(responses_topic, json);
+    return publish(false, json);
 }
 
 bool net_publish_status(const char *json)
 {
-    return publish(status_topic, json);
+    return publish(true, json);
+}
+
+bool net_status_acked(void)
+{
+    taskENTER_CRITICAL(&ack_lock);
+    bool acked = acked_seq == status_seq;
+    taskEXIT_CRITICAL(&ack_lock);
+    return acked;
 }
 
 bool net_mqtt_connected(void)

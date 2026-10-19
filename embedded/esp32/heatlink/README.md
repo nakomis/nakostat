@@ -22,7 +22,8 @@ heatlink/
 │   ├── led.c          #   status LED colours
 │   ├── hl_cmd.c       #   demand / set_schedule / get_status / reboot
 │   ├── ota_cmd.c      #   Fleet's commands (copied unchanged from kappa-warmer)
-│   └── status_json.c  #   the /status JSON
+│   ├── status_json.c  #   the /status JSON
+│   └── report.c       #   when /status goes out, and why (boot / change / heartbeat, retries)
 ├── tools/             # host test drivers (<name>_main.c → build/hl-<name>)
 ├── tests/             # pytest: conftest.py builds the drivers, tool(name) runs one
 ├── scripts/provision-device.sh
@@ -64,7 +65,8 @@ Brightness: `HEATLINK_LED_LEVEL` (default 40 of 255).
 | off | any | `force_off` | off |
 | auto | demand younger than its `ttl_s` | `auto` | the demand's `on` |
 | auto | no demand since boot, within the first 300 s | `auto` | off (cold boot) |
-| auto | demand stale, schedule known, clock valid | `fallback` | the schedule's duty cycle |
+| auto | demand stale, schedule known and enabled, clock valid | `fallback` | the schedule's duty cycle |
+| auto | demand stale, schedule disabled (daemon mode `off`) | `fallback` | off |
 | auto | demand stale, no schedule or no valid clock | `fallback` | off |
 
 **Fallback** heats while the schedule's target at local time is at least `comfort_c` (default
@@ -82,14 +84,18 @@ first reading at boot counts at once, so a forced switch takes effect at power-u
 Commands arrive on `nakostat/<thing>/commands` as `{"command": ...}`. The Thing name comes from the
 prov partition (default `nakostat-heatlink`).
 
-- `demand` `{"on":true,"source":"schedule"|"override"|"frost"|"off","setpoint":20.5,"temperature":19.8,"ttl_s":300}`:
+- `demand` `{"on":true,"source":"schedule"|"override"|"frost"|"off","setpoint":20.5,"temperature":19.8,"ttl_s":300,"ts":1760000000}`:
   `on` is required. `source` defaults to `override`. `ttl_s` defaults to 300 and is clamped to
-  60–1800. A successful demand gets **no reply**, because the daemon sends one every 30 s; `/status`
+  60–1800. `ts` (optional) is the daemon's Unix time in seconds: once the heatlink's clock is valid,
+  a demand more than 60 s old is ignored (a demand from the future is accepted, to allow for clock
+  skew). A successful demand gets **no reply**, because the daemon sends one every 30 s; `/status`
   shows the effect.
-- `set_schedule` `{"tz":..,"comfort_c":18.0,"duty_pct":67,"days":[[[360,20.0],[540,16.0]],…7 days, Monday first]}`:
+- `set_schedule` `{"enabled":true,"tz":..,"comfort_c":18.0,"duty_pct":67,"days":[[[360,20.0],[540,16.0]],…7 days, Monday first]}`:
   - `days` must hold exactly 7 days, each with at most 8 `[minute 0–1439, target_c]` entries.
   - Entries are sorted; at the same minute the later entry wins.
   - Targets are clamped to 0–30 °C, `comfort_c` to 5–30 °C, and `duty_pct` to 0–100.
+  - `enabled` (default `true`) is `false` while the daemon's mode is `off`: the fallback then keeps
+    the relay off (mode still `fallback`). It is stored with the schedule.
   - The heatlink answers `set_schedule_result` `ok` with the message `stored`, or `unchanged` if
     the schedule is the same; an unchanged schedule isn't rewritten to flash.
 - `get_status`: publishes a status with `reason:"request"` on `/status`.
@@ -100,7 +106,10 @@ prov partition (default `nakostat-heatlink`).
   on `/responses`.
 
 `/status` is published every 60 s (`heartbeat`), immediately when `mode` or `relay` changes
-(`change`), and after every MQTT connect (`boot` the first time):
+(`change`), and after every MQTT connect (`boot` the first time). A change made while MQTT was down,
+whose publish failed, or that IoT Core never acknowledged before the connection dropped, is reported
+as `change` on the first status after the reconnect. A failed publish is retried after 5 s.
+Publishing never blocks the app task: messages are copied into a queue for the network's tx task.
 
 ```json
 {"mode":"auto","relay":true,"switch":"auto","source":"schedule","demand_age_s":12,"schedule_known":true,
@@ -113,6 +122,10 @@ Storage:
 - `nvs`, namespace `heatlink`: `schedule` (a versioned blob, checked on load). Namespace `ota`:
   `target` and `target_slot`, for the rollback check.
 - `prov` (NVS partition, namespace `nakostat`): Wi-Fi, IoT endpoint, Thing name, certificate and key.
+
+The app task, which drives the relay, is watched by the task watchdog: if its loop stops for 5 s
+the heatlink panics and restarts (relay off at reset; the crash is saved as a core dump). A new image
+on probation that hangs is rolled back.
 
 OTA is unsigned for the prototype (Fleet capability `ota`). A new image is on probation until MQTT
 is subscribed to `/commands` (SUBACK granted). If that doesn't happen within 120 s, the bootloader
