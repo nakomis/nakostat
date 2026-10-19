@@ -9,6 +9,7 @@ void hl_schedule_init(hl_schedule *s)
     memset(s, 0, sizeof(*s));
     s->comfort_centi = HL_COMFORT_DEFAULT_CENTI;
     s->duty_pct = HL_DUTY_DEFAULT;
+    s->enabled = true;
     snprintf(s->tz, sizeof(s->tz), "%s", HL_TZ_DEFAULT);
 }
 
@@ -16,6 +17,10 @@ bool hl_schedule_valid(const hl_schedule *s)
 {
     if (s == NULL || s->duty_pct > HL_DUTY_MAX || s->comfort_centi < HL_COMFORT_MIN_CENTI ||
         s->comfort_centi > HL_COMFORT_MAX_CENTI || memchr(s->tz, 0, sizeof(s->tz)) == NULL || s->tz[0] == 0)
+        return false;
+    uint8_t enabled;  // read as a byte: a stored bool that isn't 0 or 1 is corrupt
+    memcpy(&enabled, &s->enabled, 1);
+    if (enabled > 1)
         return false;
     for (int d = 0; d < HL_DAYS; d++)
     {
@@ -64,7 +69,7 @@ int hl_duty_minutes(uint8_t duty_pct)
 bool hl_fallback_heat(const hl_schedule *s, hl_local now)
 {
     int16_t target;
-    if (!hl_schedule_target(s, now, &target) || target < s->comfort_centi)
+    if (!s->enabled || !hl_schedule_target(s, now, &target) || target < s->comfort_centi)
         return false;
     return now.minute % 60 < hl_duty_minutes(s->duty_pct);
 }

@@ -20,6 +20,7 @@
 #define HL_TTL_MIN_S 60
 #define HL_TTL_MAX_S 1800
 #define HL_TTL_DEFAULT_S 300
+#define HL_DEMAND_MAX_AGE_S 60  // a demand whose ts is older than this is ignored
 
 typedef enum
 {
@@ -75,6 +76,12 @@ typedef struct
 } hl_output;
 
 hl_output hl_decide(const hl_inputs *in);
+
+// Whether a demand sent at `ts_s` (the daemon's Unix time) is too old to follow: true only when it
+// has a ts, the heatlink's own clock is valid, and ts is more than HL_DEMAND_MAX_AGE_S behind it
+// (say, a demand replayed from a queue after an outage). A ts ahead of the clock is accepted: the
+// two clocks may disagree a little, and only staleness matters.
+bool hl_demand_too_old(bool has_ts, int64_t ts_s, bool time_valid, int64_t now_s);
 
 // Clamps a demand's ttl_s to HL_TTL_MIN_S..HL_TTL_MAX_S.
 uint32_t hl_ttl_clamp(double ttl_s);

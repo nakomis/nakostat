@@ -31,6 +31,12 @@ def heats(at, sched, *moments):
     return at(sched, *moments)["heat"]
 
 
+def test_a_disabled_schedule_never_heats(at):
+    s = schedule(every_day([[0, 20.0]]), enabled=False)
+    assert targets(at, s, (MON, 0)) == [2000]
+    assert heats(at, s, (MON, 0), (WED, 600), (SUN, 1439)) == [False, False, False]
+
+
 def test_empty_schedule_has_no_target(at):
     assert targets(at, schedule(), (MON, 0), (SUN, 1439)) == [None, None]
 
@@ -135,6 +141,11 @@ def test_valid_empty(valid):
     assert valid()
 
 
+@pytest.mark.parametrize("enabled", [0, 1])
+def test_valid_enabled(valid, enabled):
+    assert valid(enabled=enabled)
+
+
 def test_valid_entries(valid):
     assert valid(count=[2, 0, 0, 0, 0, 0, 0], entries=[[[360, 2000], [540, 1600]]] + [[]] * 6)
 
@@ -151,6 +162,7 @@ def test_valid_entries(valid):
     {"comfort": 3001},
     {"tz": ""},
     {"unterminated_tz": True},
+    {"enabled": 2},   # a bool byte that isn't 0 or 1
 ])
 def test_invalid_stored_schedules(valid, raw):
     assert not valid(**raw)

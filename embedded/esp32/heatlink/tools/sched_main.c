@@ -5,7 +5,8 @@
 //                         prints {"target":[<centi>|null,...],"heat":[bool,...]} or {"error":..}
 //   hl-sched --duty <pct> prints the minutes of each hour the fallback heats
 //   hl-sched --valid      one JSON per line: a raw schedule (as hl_schedule's fields:
-//                         {"count":[..7],"entries":[[[m,c],..],..],"comfort":c,"duty":p,"tz":".."});
+//                         {"count":[..7],"entries":[[[m,c],..],..],"comfort":c,"duty":p,"tz":"..",
+//                          "enabled":<the raw byte>});
 //                         prints 1 or 0 from hl_schedule_valid
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,6 +51,8 @@ static void valid(const cJSON *raw)
     }
     s.comfort_centi = (int16_t)num(raw, "comfort", s.comfort_centi);
     s.duty_pct = (uint8_t)num(raw, "duty", s.duty_pct);
+    uint8_t enabled = (uint8_t)num(raw, "enabled", 1);
+    memcpy(&s.enabled, &enabled, 1);  // as NVS would hand back any byte
     const cJSON *tz = cJSON_GetObjectItemCaseSensitive(raw, "tz");
     if (cJSON_IsString(tz))
         snprintf(s.tz, sizeof(s.tz), "%s", tz->valuestring);

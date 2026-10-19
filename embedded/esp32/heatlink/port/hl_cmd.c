@@ -10,6 +10,7 @@
 
 #define MAX_DEPTH 8           // set_schedule nests 4 deep; cJSON recurses per level
 #define READING_LIMIT_C 100.0  // sanity bound for the informational setpoint and temperature
+#define TS_LIMIT_S 1e15        // sanity bound for a demand's ts
 
 static void fail(hl_cmd *out, const char *message)
 {
@@ -75,6 +76,16 @@ static void demand(const cJSON *root, hl_cmd *out)
         return fail(out, "setpoint must be a number of degrees");
     if (!reading(root, "temperature", &out->has_temperature, &out->temperature_centi))
         return fail(out, "temperature must be a number of degrees");
+
+    const cJSON *ts = cJSON_GetObjectItemCaseSensitive(root, "ts");
+    if (ts != NULL && !cJSON_IsNull(ts))
+    {
+        // Bounded so the conversion is defined; any real Unix time is far inside it.
+        if (!is_finite_number(ts) || fabs(ts->valuedouble) > TS_LIMIT_S)
+            return fail(out, "ts must be a number of seconds");
+        out->has_ts = true;
+        out->ts = (int64_t)ts->valuedouble;
+    }
     out->kind = HL_CMD_DEMAND;
 }
 
@@ -144,6 +155,14 @@ static void set_schedule(const cJSON *root, hl_cmd *out)
             return fail(out, "duty_pct must be a number");
         double p = duty->valuedouble;
         s->duty_pct = p <= 0 ? 0 : p >= HL_DUTY_MAX ? HL_DUTY_MAX : (uint8_t)(p + 0.5);
+    }
+
+    const cJSON *enabled = cJSON_GetObjectItemCaseSensitive(root, "enabled");
+    if (enabled != NULL)
+    {
+        if (!cJSON_IsBool(enabled))
+            return fail(out, "enabled must be true or false");
+        s->enabled = cJSON_IsTrue(enabled);
     }
 
     const cJSON *tz = cJSON_GetObjectItemCaseSensitive(root, "tz");
