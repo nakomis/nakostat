@@ -40,7 +40,7 @@ A DIY smart thermostat built after the Nest thermostat and Heatlink both failed.
 | `3d/` | Printed enclosure models |
 | `docs/` | Architecture diagrams and notes |
 | `embedded/pi/` | Rust/egui touch UI and sensor daemon |
-| `embedded/esp32/` | PlatformIO ESP32 boiler firmware |
+| `embedded/esp32/heatlink/` | ESP-IDF heatlink firmware (boiler relay, switch, fallback schedule); see its [README](embedded/esp32/heatlink/README.md) |
 | `githooks/` | Pre-commit hooks |
 | `infra/` | AWS CDK stacks |
 | `pcb/` | PCB designs |
@@ -62,10 +62,10 @@ Every toolchain is pinned in [`.tool-versions`](.tool-versions), which is the si
 |------|---------|-----------------|
 | `nodejs` | `infra/`, `web/` | `actions/setup-node` with `node-version-file: .tool-versions` |
 | `pnpm` | `infra/`, `web/` | `pnpm/action-setup` reads `packageManager` in `infra/package.json` and `web/package.json`; the **Toolchain pins** job fails if that disagrees with `.tool-versions` |
-| `python` | PlatformIO (`embedded/esp32/`) | `actions/setup-python` with `python-version-file: .tool-versions` |
+| `python` | heatlink host tests (`embedded/esp32/heatlink/tests/`) | `actions/setup-python` with `python-version-file: .tool-versions` |
 | `rust` | `embedded/pi/sensor-daemon/` | the `rust` line is passed to `dtolnay/rust-toolchain` |
 
-With [asdf](https://asdf-vm.com/) (`nodejs`, `pnpm`, `python` and `rust` plugins) run `asdf install` in the repo root; with [mise](https://mise.jdx.dev/), `mise install`. PlatformIO has no asdf plugin, so it is pinned in [`embedded/esp32/requirements.txt`](embedded/esp32/requirements.txt) and installed into the pinned Python with `pip install -r embedded/esp32/requirements.txt`.
+With [asdf](https://asdf-vm.com/) (`nodejs`, `pnpm`, `python` and `rust` plugins) run `asdf install` in the repo root; with [mise](https://mise.jdx.dev/), `mise install`. The heatlink firmware builds with ESP-IDF 5.5 (installed with Espressif's own `install.sh`, not asdf); its host tests need pytest from [`embedded/esp32/heatlink/tests/requirements.txt`](embedded/esp32/heatlink/tests/requirements.txt).
 
 To bump a tool, change `.tool-versions` (and, for pnpm, `packageManager` in `package.json`) in the same PR.
 
