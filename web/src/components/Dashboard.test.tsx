@@ -78,6 +78,17 @@ describe('Dashboard', () => {
     expect(screen.getByText('Boiler, last 24 hours')).toBeInTheDocument();
   });
 
+  it('asks for readings by time range, covering the last 24 hours', async () => {
+    fns.getState.mockResolvedValue(stateBody());
+    renderDashboard();
+    await waitFor(() => expect(fns.getReadings).toHaveBeenCalled());
+    const input = fns.getReadings.mock.calls[0][0] as { from?: string; limit?: number };
+    expect(input.limit).toBeUndefined();
+    const from = Date.parse(input.from ?? '');
+    expect(Date.now() - from).toBeGreaterThanOrEqual(24 * 3600_000);
+    expect(Date.now() - from).toBeLessThanOrEqual(26 * 3600_000);
+  });
+
   it('shows an error when /state fails', async () => {
     fns.getState.mockRejectedValue(new Error('HTTP 500'));
     renderDashboard();
