@@ -91,7 +91,7 @@ journalctl -u nakostat -f
 # Tail file logs
 tail -f /var/log/nakostat/nakostat.log
 
-# Check socket output (one reading per line)
+# Check socket output (reading and {"type":"state"} lines)
 nc -U /run/nakostat/sensor.sock
 
 # Override log level without editing config
@@ -114,3 +114,41 @@ All config values can be overridden at runtime:
 | `NAKOSTAT_SENSOR_PUBLISH_INTERVAL_S` | `sensor.publish_interval_s` |
 | `NAKOSTAT_SENSOR_WARMUP_S` | `sensor.warmup_s` |
 | `NAKOSTAT_SOCKET_PATH` | `socket.path` |
+| `NAKOSTAT_SCHEDULE_PATH` | `schedule.path` |
+| `NAKOSTAT_MQTT_ENV` | `mqtt.env` |
+| `NAKOSTAT_CONTROL_FROST_C` | `control.frost_c` |
+| `NAKOSTAT_CONTROL_HYSTERESIS_BELOW_C` | `control.hysteresis_below_c` |
+| `NAKOSTAT_CONTROL_HYSTERESIS_ABOVE_C` | `control.hysteresis_above_c` |
+| `NAKOSTAT_CONTROL_MIN_CYCLE_S` | `control.min_cycle_s` |
+| `NAKOSTAT_CONTROL_SETPOINT_JUMP_C` | `control.setpoint_jump_c` |
+| `NAKOSTAT_CONTROL_STALE_AFTER_S` | `control.stale_after_s` |
+| `NAKOSTAT_CONTROL_DEMAND_INTERVAL_S` | `control.demand_interval_s` |
+| `NAKOSTAT_CONTROL_STATE_INTERVAL_S` | `control.state_interval_s` |
+| `NAKOSTAT_CONTROL_STATE_PATH` | `control.state_path` |
+| `NAKOSTAT_HEATLINK_THING` | `heatlink.thing` |
+| `NAKOSTAT_HEATLINK_TZ` | `heatlink.tz` |
+| `NAKOSTAT_HEATLINK_COMFORT_C` | `heatlink.comfort_c` |
+| `NAKOSTAT_HEATLINK_DUTY_PCT` | `heatlink.duty_pct` |
+| `NAKOSTAT_HEATLINK_DEMAND_TTL_S` | `heatlink.demand_ttl_s` |
+| `NAKOSTAT_HEATLINK_SCHEDULE_PUSH_INTERVAL_S` | `heatlink.schedule_push_interval_s` |
+
+An unparseable numeric override is ignored with a warning.
+
+### Control loop (STAT-51, STAT-47)
+
+The daemon is the brain; the heatlink is a switch with a watchdog. Module map:
+
+| Module | Role |
+|--------|------|
+| `control.rs` | Pure, clock-injected controller: effective setpoint (off → frost 7 °C; else override until the next schedule transition; else schedule), hysteresis (on < SP−0.3, off ≥ SP+0.2), 3-min short-cycle guard (bypassed by a ≥1 °C setpoint move), stale sensor (> 5 min) → no demand. Mode + override persisted to `control.state_path`. |
+| `messages.rs` | Topics and payloads, exactly as the spec (`docs/superpowers/specs/2026-10-19-heatlink-v2-prototype-design.md`). |
+| `daemon.rs` | Event handling: MQTT messages in → demand / `set_schedule` / `pi/state` / `pi/schedule` out, plus socket lines. |
+| `main.rs` | Timers and the event loop only. |
+
+Subscribes to `nakostat/{env}/api/{setpoint,mode,schedule}`, `nakostat/{env}/pish/setpoint`
+and `nakostat/{thing}/status`. Publishes `demand` to `nakostat/{thing}/commands` every 30 s and
+on change, `set_schedule` on connect / schedule change / every 6 h, `pi/state` every 60 s and on
+change, `pi/schedule` on change and hourly. Readings are published only after the ENS160
+warm-up, but the control loop uses the AHT21 temperature from the first read.
+
+The socket carries reading lines (unchanged) and `{"type":"state",…}` lines (the `pi/state` object).
