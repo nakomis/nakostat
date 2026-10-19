@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
 import * as fs from 'fs';
+import { AlexaAuthStack, AlexaStack } from '../lib/alexa-stack';
 import { ApiStack } from '../lib/api-stack';
 import { DynamoStack } from '../lib/dynamo-stack';
 import { GithubCiStack } from '../lib/github-ci-stack';
@@ -87,6 +88,25 @@ new GithubCiStack(app, 'NakostatGithubCiStack', {
   webBucket: webStack.bucket,
   webDistribution: webStack.distribution,
   description: `GitHub Actions OIDC role for nakostat CI (${deployEnv})`,
+});
+
+// Alexa Smart Home skill: the account-linking Cognito client sits with the
+// shared pool in eu-west-2; the skill Lambda runs in eu-west-1, Alexa's EU
+// endpoint region. Two-step first deploy: see docs/alexa-setup.md.
+const alexaAuthStack = new AlexaAuthStack(app, 'NakostatAlexaAuthStack', {
+  ...londonEnv,
+  deployEnv,
+  crossRegionReferences: true,
+  description: `Cognito client for Alexa account linking (${deployEnv})`,
+});
+
+new AlexaStack(app, 'NakostatAlexaStack', {
+  env: { account: accountId, region: 'eu-west-1' },
+  deployEnv,
+  userPoolId: alexaAuthStack.userPoolId,
+  alexaClientId: alexaAuthStack.client.userPoolClientId,
+  crossRegionReferences: true,
+  description: `Alexa Smart Home skill Lambda for nakostat (${deployEnv})`,
 });
 
 const { version: infraVersion } = JSON.parse(fs.readFileSync('./version.json', 'utf-8'));
