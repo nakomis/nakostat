@@ -2,6 +2,7 @@ import { createRootRoute, createRoute, createRouter, Outlet } from '@tanstack/re
 import Home from '@/routes/Home';
 import LoggedIn from '@/routes/LoggedIn';
 import Logout from '@/routes/Logout';
+import Schedule from '@/routes/Schedule';
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
@@ -19,13 +20,19 @@ const loggedInRoute = createRoute({
   component: LoggedIn,
 });
 
+const scheduleRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/schedule',
+  component: Schedule,
+});
+
 const logoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/logout',
   component: Logout,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, loggedInRoute, logoutRoute]);
+const routeTree = rootRoute.addChildren([indexRoute, scheduleRoute, loggedInRoute, logoutRoute]);
 
 export const router = createRouter({ routeTree });
 
