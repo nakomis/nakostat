@@ -66,7 +66,7 @@ what only Martin can do, small environment gaps, and the technical calls you've 
 - **Resource caps are mandatory in every agent prompt.** Martin runs many Claude sessions on one Mac;
   parallel agents running uncapped suites (jest spawned 17 workers × ~500 MB) pushed load to 15 and
   swap to 11/12 GB and another session had to ask us to stop. Always specify: `jest --maxWorkers=2`,
-  `vitest --pool=forks --poolOptions.forks.maxForks=2`, `cargo -j 2`, `idf.py`/ninja `-j2`, no
+  `vitest run --maxWorkers=2` (Vitest 4; `--poolOptions` was removed), `cargo -j 2`, `idf.py`/ninja `-j2`, no
   parallel suites within an agent, full-suite runs once at the end. Prefer ≤3 heavy agents at once.
 - Lead does the cross-cutting docs (wiring guide, CI) in its own worktree while agents run.
 
