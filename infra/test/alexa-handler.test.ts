@@ -16,6 +16,8 @@ const iotMock = mockClient(IoTDataPlaneClient);
 const NOW = new Date('2026-10-19T12:00:00.000Z');
 const FRESH = '2026-10-19T11:58:00.000Z'; // 2 min old
 const STALE = '2026-10-19T11:50:00.000Z'; // 10 min old
+const HL_FRESH = '2026-10-19T11:59:00.000Z'; // 1 min old
+const HL_STALE = '2026-10-19T11:56:00.000Z'; // 4 min old
 
 const piState = (overrides: Record<string, unknown> = {}) => ({
   deviceId: 'pi',
@@ -69,6 +71,9 @@ beforeEach(() => {
   process.env.USER_POOL_ID = 'eu-west-2_TEST';
   process.env.ALEXA_CLIENT_ID = 'alexa-client';
   dynamoMock.on(GetCommand, { Key: { deviceId: 'pi' } }).resolves({ Item: piState() });
+  dynamoMock
+    .on(GetCommand, { Key: { deviceId: 'heatlink' } })
+    .resolves({ Item: { deviceId: 'heatlink', seen: HL_FRESH, relay: true } });
   iotMock.on(PublishCommand).resolves({});
   jest.spyOn(console, 'error').mockImplementation(() => {});
   jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -233,13 +238,17 @@ describe('Alexa ReportState', () => {
   });
 
   test('reports OFF mode', async () => {
-    dynamoMock.on(GetCommand).resolves({ Item: piState({ mode: 'off', setpoint: 7 }) });
+    dynamoMock
+      .on(GetCommand, { Key: { deviceId: 'pi' } })
+      .resolves({ Item: piState({ mode: 'off', setpoint: 7 }) });
     const res = await handler(directive('Alexa', 'ReportState'));
     expect(prop(res, 'Alexa.ThermostatController', 'thermostatMode').value).toBe('OFF');
   });
 
   test('reports UNREACHABLE when the Pi state is older than 5 minutes', async () => {
-    dynamoMock.on(GetCommand).resolves({ Item: piState({ timestamp: STALE }) });
+    dynamoMock
+      .on(GetCommand, { Key: { deviceId: 'pi' } })
+      .resolves({ Item: piState({ timestamp: STALE }) });
     const res = await handler(directive('Alexa', 'ReportState'));
     expect(prop(res, 'Alexa.EndpointHealth', 'connectivity').value).toEqual({
       value: 'UNREACHABLE',
@@ -247,14 +256,16 @@ describe('Alexa ReportState', () => {
   });
 
   test('omits properties the Pi has not reported', async () => {
-    dynamoMock.on(GetCommand).resolves({ Item: piState({ temperature: undefined }) });
+    dynamoMock
+      .on(GetCommand, { Key: { deviceId: 'pi' } })
+      .resolves({ Item: piState({ temperature: undefined }) });
     const res = await handler(directive('Alexa', 'ReportState'));
     expect(prop(res, 'Alexa.TemperatureSensor', 'temperature')).toBeUndefined();
     expect(prop(res, 'Alexa.ThermostatController', 'targetSetpoint')).toBeDefined();
   });
 
   test('returns ENDPOINT_UNREACHABLE when there is no Pi state', async () => {
-    dynamoMock.on(GetCommand).resolves({});
+    dynamoMock.on(GetCommand, { Key: { deviceId: 'pi' } }).resolves({});
     const res = await handler(directive('Alexa', 'ReportState'));
     expect(res.event.header.name).toBe('ErrorResponse');
     expect(res.event.payload.type).toBe('ENDPOINT_UNREACHABLE');
@@ -358,16 +369,6 @@ describe('SetTargetTemperature', () => {
     expect(res.event.payload.type).toBe('INVALID_VALUE');
   });
 
-  test('still succeeds without Pi state, reporting UNREACHABLE', async () => {
-    dynamoMock.on(GetCommand).resolves({});
-    const res = await handler(set(21));
-    expect(res.event.header.name).toBe('Response');
-    expect(prop(res, 'Alexa.EndpointHealth', 'connectivity').value).toEqual({
-      value: 'UNREACHABLE',
-    });
-    expect(prop(res, 'Alexa.ThermostatController', 'thermostatMode')).toBeUndefined();
-  });
-
   test('returns INTERNAL_ERROR when the publish fails', async () => {
     iotMock.on(PublishCommand).rejects(new Error('iot down'));
     const res = await handler(set(21));
@@ -403,16 +404,29 @@ describe('AdjustTargetTemperature', () => {
     expect(publishes()[0].payload.temperature).toBe(19.5);
   });
 
-  test('clamps to the valid range', async () => {
-    dynamoMock.on(GetCommand).resolves({ Item: piState({ setpoint: 29.5 }) });
-    await handler(adjust(3));
-    dynamoMock.on(GetCommand).resolves({ Item: piState({ setpoint: 6 }) });
-    await handler(adjust(-3));
-    expect(publishes().map((p) => p.payload.temperature)).toEqual([30, 5]);
+  test('rejects an adjustment outside 5-30 C with TEMPERATURE_VALUE_OUT_OF_RANGE', async () => {
+    dynamoMock
+      .on(GetCommand, { Key: { deviceId: 'pi' } })
+      .resolves({ Item: piState({ setpoint: 29.5 }) });
+    const high = await handler(adjust(3));
+    dynamoMock
+      .on(GetCommand, { Key: { deviceId: 'pi' } })
+      .resolves({ Item: piState({ setpoint: 6 }) });
+    const low = await handler(adjust(-3));
+    for (const res of [high, low]) {
+      expect(res.event.payload.type).toBe('TEMPERATURE_VALUE_OUT_OF_RANGE');
+      expect(res.event.payload.validRange).toEqual({
+        minimumValue: { value: 5, scale: 'CELSIUS' },
+        maximumValue: { value: 30, scale: 'CELSIUS' },
+      });
+    }
+    expect(publishes()).toHaveLength(0);
   });
 
   test('returns ENDPOINT_UNREACHABLE without a current setpoint', async () => {
-    dynamoMock.on(GetCommand).resolves({ Item: piState({ setpoint: undefined }) });
+    dynamoMock
+      .on(GetCommand, { Key: { deviceId: 'pi' } })
+      .resolves({ Item: piState({ setpoint: undefined }) });
     const res = await handler(adjust(1));
     expect(res.event.payload.type).toBe('ENDPOINT_UNREACHABLE');
     expect(publishes()).toHaveLength(0);
@@ -486,5 +500,75 @@ describe('unknown directives and endpoints', () => {
   test('a malformed event gives INVALID_DIRECTIVE', async () => {
     const res = await handler({} as never);
     expect(res.event.payload.type).toBe('INVALID_DIRECTIVE');
+  });
+});
+
+describe('heatlink health', () => {
+  const hl = (item: Record<string, unknown> | undefined) =>
+    dynamoMock.on(GetCommand, { Key: { deviceId: 'heatlink' } }).resolves({ Item: item });
+  const setpoint21 = () =>
+    directive('Alexa.ThermostatController', 'SetTargetTemperature', {
+      targetSetpoint: { value: 21, scale: 'CELSIUS' },
+    });
+
+  test('a heatlink seen 4 minutes ago is UNREACHABLE', async () => {
+    hl({ deviceId: 'heatlink', seen: HL_STALE });
+    const res = await handler(directive('Alexa', 'ReportState'));
+    expect(res.event.header.name).toBe('StateReport');
+    expect(prop(res, 'Alexa.EndpointHealth', 'connectivity').value).toEqual({
+      value: 'UNREACHABLE',
+    });
+  });
+
+  test('a missing heatlink item is UNREACHABLE', async () => {
+    hl(undefined);
+    const res = await handler(directive('Alexa', 'ReportState'));
+    expect(prop(res, 'Alexa.EndpointHealth', 'connectivity').value).toEqual({
+      value: 'UNREACHABLE',
+    });
+  });
+
+  test('a fresh Pi and heatlink are OK', async () => {
+    const res = await handler(directive('Alexa', 'ReportState'));
+    expect(prop(res, 'Alexa.EndpointHealth', 'connectivity').value).toEqual({ value: 'OK' });
+  });
+
+  test.each([
+    ['stale heatlink', () => hl({ deviceId: 'heatlink', seen: HL_STALE })],
+    ['missing heatlink', () => hl(undefined)],
+    [
+      'stale Pi',
+      () =>
+        dynamoMock
+          .on(GetCommand, { Key: { deviceId: 'pi' } })
+          .resolves({ Item: piState({ timestamp: STALE }) }),
+    ],
+  ])('directives return ENDPOINT_UNREACHABLE without publishing (%s)', async (_l, arrange) => {
+    arrange();
+    for (const d of [
+      setpoint21(),
+      directive('Alexa.ThermostatController', 'AdjustTargetTemperature', {
+        targetSetpointDelta: { value: 1, scale: 'CELSIUS' },
+      }),
+      directive('Alexa.ThermostatController', 'SetThermostatMode', {
+        thermostatMode: { value: 'OFF' },
+      }),
+    ]) {
+      const res = await handler(d);
+      expect(res.event.header.name).toBe('ErrorResponse');
+      expect(res.event.payload.type).toBe('ENDPOINT_UNREACHABLE');
+    }
+    expect(publishes()).toHaveLength(0);
+  });
+});
+
+describe('Celsius rounding', () => {
+  test('rounds Celsius values to the nearest 0.5', async () => {
+    await handler(
+      directive('Alexa.ThermostatController', 'SetTargetTemperature', {
+        targetSetpoint: { value: 20.3, scale: 'CELSIUS' },
+      }),
+    );
+    expect(publishes()[0].payload.temperature).toBe(20.5);
   });
 });

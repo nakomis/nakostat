@@ -131,3 +131,19 @@ describe('get readings handler — time range', () => {
     expect(result.body).toContain('from must not be after to');
   });
 });
+
+describe('get readings handler — errors', () => {
+  beforeEach(() => jest.spyOn(console, 'error').mockImplementation(() => {}));
+
+  test.each([
+    ['latest', undefined],
+    ['range', { from: '2026-10-19T00:00:00Z' }],
+  ])('returns 500 with CORS headers when DynamoDB fails (%s)', async (_l, q) => {
+    dynamoMock.on(QueryCommand).rejects(new Error('boom'));
+    const event = { queryStringParameters: q } as unknown as APIGatewayProxyEventV2;
+    const result = structured(await handler(event));
+    expect(result.statusCode).toBe(500);
+    expect(JSON.parse(result.body)).toEqual({ message: 'Internal server error' });
+    expect(result.headers?.['Access-Control-Allow-Origin']).toBe('*');
+  });
+});

@@ -12,9 +12,9 @@ export function json(statusCode: number, body: unknown): APIGatewayProxyStructur
   return { statusCode, headers: cors, body: JSON.stringify(body) };
 }
 
-/** Setpoints and schedule targets the API accepts, in °C. */
-export const MIN_SETPOINT_C = 5;
-export const MAX_SETPOINT_C = 30;
+import { MAX_SETPOINT_C, MIN_SETPOINT_C } from '../shared/limits';
+
+export { MAX_SETPOINT_C, MIN_SETPOINT_C };
 
 export function isValidTemperature(t: unknown): t is number {
   return typeof t === 'number' && Number.isFinite(t) && t >= MIN_SETPOINT_C && t <= MAX_SETPOINT_C;

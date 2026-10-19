@@ -138,6 +138,23 @@ Never commit the filled-in copy.
 2. Sign in on the Nakomis (Cognito) page with your usual account.
 3. *Discover devices*. **Heating** appears as a thermostat.
 
+## Revoking Alexa's access
+
+The Alexa app client's refresh tokens last 10 years (so the link never silently breaks), which
+means a leaked or unwanted link has to be revoked deliberately. Any one of these works:
+
+- **Revoke the refresh token**: `aws cognito-idp revoke-token --client-id "$CLIENT" --client-secret
+  "<secret>" --token "<refresh token>"` (the client has token revocation enabled). This invalidates
+  that token and the access tokens issued from it.
+- **Global sign-out of the user**: `aws cognito-idp admin-user-global-sign-out --user-pool-id "$POOL"
+  --username <user>` revokes every refresh token for that user, across all clients.
+- **Disable the client**: remove or replace the Alexa client in `infra/lib/alexa-stack.ts` and
+  deploy, which cuts off every linked account at once. Then disable the skill in the Alexa app and
+  re-link afterwards.
+
+Refresh-token rotation is not enabled: we have not confirmed Alexa keeps a rotated refresh token,
+and a mismatch would break the link without any error.
+
 ## Things to say
 
 - "Alexa, set the heating to twenty degrees." (an override until the next schedule change)
