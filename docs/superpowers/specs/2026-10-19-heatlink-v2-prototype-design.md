@@ -81,9 +81,15 @@ and prod accounts are separate, so the thing name has no env suffix. Existing Pi
 - `{"command":"demand","on":true,"source":"schedule"|"override"|"frost"|"off","setpoint":20.5,"temperature":19.8,"ttl_s":300}`
   The daemon sends this every 30 s and immediately on change. The heatlink follows `on` while the
   last demand is younger than `ttl_s` (clamped 60–1800, default 300).
-- `{"command":"set_schedule","tz":"GMT0BST,M3.5.0/1,M10.5.0","comfort_c":18.0,"duty_pct":67,"days":[[[360,20.0],[540,16.0],…], …7 days, Mon first]}`
+  *Added after review:* an optional `"ts":1760000000`, the daemon's Unix time in seconds when it sent
+  the demand. When the heatlink's own time is valid and `ts` is more than 60 s old (for example, a
+  demand replayed from a queue after an outage), the heatlink ignores it.
+- `{"command":"set_schedule","enabled":true,"tz":"GMT0BST,M3.5.0/1,M10.5.0","comfort_c":18.0,"duty_pct":67,"days":[[[360,20.0],[540,16.0],…], …7 days, Mon first]}`
   Each entry is `[minute_of_day, target_c]`. At most 8 entries a day. Stored in NVS. The daemon sends
-  it on connect, on schedule change, and every 6 h.
+  it on connect, on schedule change, **on every mode change**, and every 6 h.
+  *Added after review:* `enabled` is `false` while the daemon's mode is `off`, so the heatlink's fallback
+  keeps the relay off and doesn't heat a house the user switched off. It is stored in NVS and
+  defaults to `true` when absent.
 - `{"command":"get_status"}` → an immediate status with `reason:"request"`.
 - Fleet's own: `get_version`, `ping`, `ota_update`, `url_chunk`, `ota_cancel`, with message shapes
   exactly as kappa-warmer's `port/ota_cmd.c` (shared with esp32-bootstrap's MqttOTA; do not change them).
