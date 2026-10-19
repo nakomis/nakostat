@@ -1,67 +1,34 @@
-import { useQuery } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { PiState } from '@/api/contract';
 import CurrentStatePanel from './CurrentStatePanel';
 
-vi.mock('@tanstack/react-query', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@tanstack/react-query')>()),
-  useQuery: vi.fn(),
-}));
-const mockUseQuery = vi.mocked(useQuery);
-
-function queryResult(overrides: Record<string, unknown>) {
-  return {
-    data: undefined,
-    isLoading: false,
-    isError: false,
-    error: null,
-    ...overrides,
-  } as unknown as ReturnType<typeof useQuery>;
-}
+const pi: PiState = {
+  timestamp: '2026-10-19T10:00:00Z',
+  temperature: 19.84,
+  humidity: 45.2,
+  mode: 'heat',
+  setpoint: 20,
+  demand: true,
+};
 
 describe('CurrentStatePanel', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it('shows a spinner whilst loading', () => {
-    mockUseQuery.mockReturnValue(queryResult({ isLoading: true }));
-    render(<CurrentStatePanel />);
-    expect(screen.getByRole('status')).toBeInTheDocument();
+  it('shows a placeholder before the Pi reports', () => {
+    render(<CurrentStatePanel pi={null} />);
+    expect(screen.getByText(/No data/)).toBeInTheDocument();
   });
 
-  it('renders an error message on failure', () => {
-    mockUseQuery.mockReturnValue(queryResult({ isError: true, error: new Error('HTTP 500') }));
-    render(<CurrentStatePanel />);
-    expect(screen.getByText(/Error: HTTP 500/)).toBeInTheDocument();
+  it('renders temperature, humidity and heating', () => {
+    render(<CurrentStatePanel pi={pi} />);
+    expect(screen.getByText('19.8')).toBeInTheDocument();
+    expect(screen.getByText('45.2')).toBeInTheDocument();
+    expect(screen.getByText('Heating')).toBeInTheDocument();
+    expect(screen.getByText(/Updated \d\d:\d\d/)).toBeInTheDocument();
   });
 
-  it('renders boiler on, setpoint and mode', () => {
-    mockUseQuery.mockReturnValue(
-      queryResult({
-        data: {
-          deviceId: 'esp32',
-          boilerActive: true,
-          setpoint: 20,
-          mode: 'auto',
-          updatedAt: '2026-06-03T20:00:00Z',
-        },
-      }),
-    );
-    render(<CurrentStatePanel />);
-    expect(screen.getByText('Boiler On')).toBeInTheDocument();
-    expect(screen.getByText('Setpoint: 20°C')).toBeInTheDocument();
-    expect(screen.getByText('Mode: auto')).toBeInTheDocument();
-    expect(screen.getByText(/Updated:/)).toBeInTheDocument();
-  });
-
-  it('renders boiler off when inactive', () => {
-    mockUseQuery.mockReturnValue(queryResult({ data: { deviceId: 'esp32', boilerActive: false } }));
-    render(<CurrentStatePanel />);
-    expect(screen.getByText('Boiler Off')).toBeInTheDocument();
-  });
-
-  it('shows "No data" when the query resolves empty', () => {
-    mockUseQuery.mockReturnValue(queryResult({ data: undefined }));
-    render(<CurrentStatePanel />);
-    expect(screen.getByText('No data')).toBeInTheDocument();
+  it('shows idle and dashes for missing readings', () => {
+    render(<CurrentStatePanel pi={{ ...pi, demand: false, temperature: null, humidity: null }} />);
+    expect(screen.getByText('Idle')).toBeInTheDocument();
+    expect(screen.getAllByText('–')).toHaveLength(2);
   });
 });

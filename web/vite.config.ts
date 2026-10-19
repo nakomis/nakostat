@@ -15,6 +15,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    // Claude Code sessions set TEST_MAX_WORKERS (~/.claude/settings.json) so parallel agents don't
+    // swamp the Mac; unset (your terminal, CI) keeps Vitest's default.
+    ...(process.env.TEST_MAX_WORKERS && { maxWorkers: Number(process.env.TEST_MAX_WORKERS) }),
     setupFiles: ['./src/test/setup.ts'],
     css: true,
     coverage: {

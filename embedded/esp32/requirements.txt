@@ -1,8 +1,0 @@
-# PlatformIO CLI used to build and test the ESP32 firmware. asdf has no
-# PlatformIO plugin, so it is pinned here and installed into the Python from
-# .tool-versions: `pip install -r embedded/esp32/requirements.txt`.
-platformio==6.2.0
-
-# Coverage report and 70% gate for `pio test -e native`
-# (see boiler/test/test_custom_runner.py).
-gcovr==8.7

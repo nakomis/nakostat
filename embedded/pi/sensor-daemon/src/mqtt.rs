@@ -1,237 +1,271 @@
 use anyhow::{Context, Result};
-use rumqttc::{AsyncClient, MqttOptions, QoS, Transport};
+use rumqttc::{
+    AsyncClient, Event, MqttOptions, Packet, QoS, SubscribeFilter, SubscribeReasonCode, Transport,
+};
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 use crate::config::MqttConfig;
-use crate::sensor::SensorReading;
 
 // ── Abstraction layer for testability ────────────────────────────────────────
 
+/// Outbound MQTT operations. Non-blocking: messages are queued for the event
+/// loop, so this is safe to call from inside the async runtime.
 pub trait MqttSink: Send + Sync + 'static {
     fn publish(&self, topic: &str, payload: &str) -> Result<()>;
+    /// Subscribe to every topic in one SUBSCRIBE packet, so a single SubAck
+    /// ([`MqttEvent::Subscribed`]) confirms them all.
+    fn subscribe_many(&self, topics: &[&str]) -> Result<()>;
+}
+
+/// What the event loop reports back to the daemon.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MqttEvent {
+    /// A (re)connection was acknowledged: resubscribe and push state.
+    Connected,
+    /// The connection dropped (event-loop error or a Disconnect from the
+    /// broker); rumqttc reconnects on the next poll.
+    Disconnected,
+    /// A SubAck; `ok` is false if the broker refused any filter.
+    Subscribed {
+        ok: bool,
+    },
+    Message {
+        topic: String,
+        payload: String,
+    },
 }
 
 // ── Production sink (rumqttc AsyncClient) ────────────────────────────────────
 
 struct RumqttcSink {
     client: AsyncClient,
-    topic: String,
-    runtime: Arc<tokio::runtime::Handle>,
 }
 
 impl MqttSink for RumqttcSink {
-    fn publish(&self, _topic: &str, payload: &str) -> Result<()> {
-        self.runtime.block_on(self.client.publish(
-            &self.topic,
-            QoS::AtLeastOnce,
-            false,
-            payload.as_bytes(),
-        ))?;
-        Ok(())
+    fn publish(&self, topic: &str, payload: &str) -> Result<()> {
+        debug!(topic, payload, "publishing MQTT");
+        self.client
+            .try_publish(topic, QoS::AtLeastOnce, false, payload.as_bytes())
+            .with_context(|| format!("queueing publish to {topic}"))
+    }
+
+    fn subscribe_many(&self, topics: &[&str]) -> Result<()> {
+        let filters = topics
+            .iter()
+            .map(|t| SubscribeFilter::new((*t).to_owned(), QoS::AtLeastOnce));
+        self.client
+            .try_subscribe_many(filters)
+            .with_context(|| format!("queueing subscribe to {topics:?}"))
+    }
+}
+
+/// Map a rumqttc event to a daemon event, if it is one the daemon cares about.
+fn translate(event: Event) -> Option<MqttEvent> {
+    match event {
+        Event::Incoming(Packet::ConnAck(_)) => Some(MqttEvent::Connected),
+        Event::Incoming(Packet::SubAck(s)) => Some(MqttEvent::Subscribed {
+            ok: s
+                .return_codes
+                .iter()
+                .all(|c| matches!(c, SubscribeReasonCode::Success(_))),
+        }),
+        Event::Incoming(Packet::Disconnect) => Some(MqttEvent::Disconnected),
+        Event::Incoming(Packet::Publish(p)) => Some(MqttEvent::Message {
+            topic: p.topic,
+            payload: String::from_utf8_lossy(&p.payload).into_owned(),
+        }),
+        _ => None,
     }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-pub struct MqttPublisher {
-    sink: Arc<dyn MqttSink>,
-    topic: String,
-}
+/// Connect to AWS IoT Core using mutual TLS. Returns the sink for outbound
+/// messages, a channel of inbound events, and the background task that drives
+/// the rumqttc event loop (and reconnects).
+pub async fn connect(
+    cfg: &MqttConfig,
+) -> Result<(Arc<dyn MqttSink>, mpsc::Receiver<MqttEvent>, JoinHandle<()>)> {
+    use rustls::pki_types::CertificateDer;
+    use rustls::{ClientConfig, RootCertStore};
+    use std::fs;
 
-impl MqttPublisher {
-    /// Connect to AWS IoT Core using mutual TLS. Returns the publisher and a
-    /// background task that drives the rumqttc event loop.
-    pub async fn new(cfg: &MqttConfig) -> Result<(Self, JoinHandle<()>)> {
-        use rustls::pki_types::CertificateDer;
-        use rustls::{ClientConfig, RootCertStore};
-        use std::fs;
-        use std::sync::Arc as RustlsArc;
+    // Load device cert and key
+    let cert_pem =
+        fs::read(&cfg.cert_path).with_context(|| format!("reading cert {}", cfg.cert_path))?;
+    let key_pem =
+        fs::read(&cfg.key_path).with_context(|| format!("reading key {}", cfg.key_path))?;
 
-        // Load device cert and key
-        let cert_pem =
-            fs::read(&cfg.cert_path).with_context(|| format!("reading cert {}", cfg.cert_path))?;
-        let key_pem =
-            fs::read(&cfg.key_path).with_context(|| format!("reading key {}", cfg.key_path))?;
+    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_pem.as_slice())
+        .collect::<std::result::Result<_, _>>()
+        .context("parsing device cert PEM")?;
 
-        let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_pem.as_slice())
-            .collect::<std::result::Result<_, _>>()
-            .context("parsing device cert PEM")?;
+    let key = rustls_pemfile::private_key(&mut key_pem.as_slice())
+        .context("reading device key PEM")?
+        .context("no private key found in key file")?;
 
-        let key = rustls_pemfile::private_key(&mut key_pem.as_slice())
-            .context("reading device key PEM")?
-            .context("no private key found in key file")?;
+    // Build root cert store from bundled Mozilla/webpki roots (includes Amazon CAs)
+    let mut roots = RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
-        // Build root cert store from bundled Mozilla/webpki roots (includes Amazon CAs)
-        let mut roots = RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let tls_config = ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_client_auth_cert(certs, key)
+        .context("building TLS client config")?;
 
-        let tls_config = ClientConfig::builder()
-            .with_root_certificates(roots)
-            .with_client_auth_cert(certs, key)
-            .context("building TLS client config")?;
+    let mut opts = MqttOptions::new(&cfg.client_id, &cfg.endpoint, cfg.port);
+    opts.set_keep_alive(std::time::Duration::from_secs(30));
+    opts.set_transport(Transport::tls_with_config(
+        rumqttc::TlsConfiguration::Rustls(Arc::new(tls_config)),
+    ));
 
-        let mut opts = MqttOptions::new(&cfg.client_id, &cfg.endpoint, cfg.port);
-        opts.set_keep_alive(std::time::Duration::from_secs(30));
-        opts.set_transport(Transport::tls_with_config(
-            rumqttc::TlsConfiguration::Rustls(RustlsArc::new(tls_config)),
-        ));
+    let (client, mut eventloop) = AsyncClient::new(opts, 64);
+    let (tx, rx) = mpsc::channel(64);
 
-        let (client, mut eventloop) = AsyncClient::new(opts, 16);
-
-        let handle = tokio::spawn(async move {
-            loop {
-                match eventloop.poll().await {
-                    Ok(_) => {}
-                    Err(e) => {
-                        tracing::warn!("MQTT event loop error: {e}");
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    }
+    // Queue behaviour (rumqttc 0.25.1, clean session): requests go into a
+    // bounded channel (64) that the event loop drains only while connected.
+    // On a connection error the loop moves unacked and channel-queued requests
+    // to its `pending` list, which the next clean-session ConnAck discards;
+    // anything enqueued *after* that sits in the channel and is sent once the
+    // link is back. The daemon therefore stops publishing on `Disconnected`,
+    // and stamps demands with `ts` so the heatlink can ignore a late one.
+    let handle = tokio::spawn(async move {
+        loop {
+            let ev = match eventloop.poll().await {
+                Ok(event) => translate(event),
+                Err(e) => {
+                    warn!("MQTT event loop error: {e}");
+                    Some(MqttEvent::Disconnected)
+                }
+            };
+            if let Some(ev) = ev {
+                if ev == MqttEvent::Connected {
+                    info!("MQTT connected");
+                }
+                let backoff = ev == MqttEvent::Disconnected;
+                if tx.send(ev).await.is_err() {
+                    break; // daemon gone
+                }
+                if backoff {
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
             }
-        });
-
-        let sink = Arc::new(RumqttcSink {
-            client,
-            topic: cfg.topic.clone(),
-            runtime: Arc::new(tokio::runtime::Handle::current()),
-        });
-
-        Ok((
-            Self {
-                sink,
-                topic: cfg.topic.clone(),
-            },
-            handle,
-        ))
-    }
-
-    /// Create a publisher backed by a custom sink — used in tests.
-    #[cfg(test)]
-    pub fn with_sink(sink: Arc<dyn MqttSink>, topic: impl Into<String>) -> Self {
-        Self {
-            sink,
-            topic: topic.into(),
         }
-    }
+    });
 
-    pub fn publish(&self, reading: &SensorReading) -> Result<()> {
-        let payload = serde_json::to_string(reading).context("serialising sensor reading")?;
-        debug!(topic = %self.topic, payload = %payload, "publishing MQTT");
-        self.sink.publish(&self.topic, &payload)
-    }
+    Ok((Arc::new(RumqttcSink { client }), rx, handle))
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
-    use chrono::Utc;
     use std::sync::Mutex;
 
-    struct CaptureSink {
-        calls: Mutex<Vec<(String, String)>>,
+    /// Records every publish and subscribe request, for daemon tests.
+    #[derive(Default)]
+    pub struct CaptureSink {
+        pub published: Mutex<Vec<(String, String)>>,
+        /// One entry per `subscribe_many` call.
+        pub subscribed: Mutex<Vec<Vec<String>>>,
     }
 
     impl CaptureSink {
-        fn new() -> Arc<Self> {
-            Arc::new(Self {
-                calls: Mutex::new(vec![]),
-            })
+        pub fn published(&self) -> Vec<(String, String)> {
+            self.published.lock().unwrap().clone()
         }
-        fn calls(&self) -> Vec<(String, String)> {
-            self.calls.lock().unwrap().clone()
+        pub fn take(&self) -> Vec<(String, String)> {
+            std::mem::take(&mut *self.published.lock().unwrap())
         }
     }
 
     impl MqttSink for CaptureSink {
         fn publish(&self, topic: &str, payload: &str) -> Result<()> {
-            self.calls
+            self.published
                 .lock()
                 .unwrap()
                 .push((topic.to_owned(), payload.to_owned()));
             Ok(())
         }
-    }
-
-    fn test_reading() -> SensorReading {
-        crate::sensor::SensorReading {
-            temperature_c: 22.5,
-            humidity_pct: 45.0,
-            eco2_ppm: 800,
-            tvoc_ppb: 150,
-            warming_up: false,
-            timestamp: Utc::now(),
+        fn subscribe_many(&self, topics: &[&str]) -> Result<()> {
+            self.subscribed
+                .lock()
+                .unwrap()
+                .push(topics.iter().map(|t| (*t).to_owned()).collect());
+            Ok(())
         }
     }
 
     #[test]
-    fn publish_calls_sink_with_correct_topic() {
-        let sink = CaptureSink::new();
-        let publisher = MqttPublisher::with_sink(sink.clone(), "nakostat/test/pi/readings");
-        publisher.publish(&test_reading()).unwrap();
+    fn translate_connack_and_publish() {
+        use rumqttc::{ConnAck, ConnectReturnCode, Publish};
+        let ack = Event::Incoming(Packet::ConnAck(ConnAck {
+            session_present: false,
+            code: ConnectReturnCode::Success,
+        }));
+        assert_eq!(translate(ack), Some(MqttEvent::Connected));
 
-        let calls = sink.calls();
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0, "nakostat/test/pi/readings");
+        let p = Publish::new("a/b", QoS::AtLeastOnce, r#"{"x":1}"#);
+        assert_eq!(
+            translate(Event::Incoming(Packet::Publish(p))),
+            Some(MqttEvent::Message {
+                topic: "a/b".into(),
+                payload: r#"{"x":1}"#.into()
+            })
+        );
+        assert_eq!(translate(Event::Incoming(Packet::PingResp)), None);
     }
 
     #[test]
-    fn publish_payload_contains_all_fields() {
-        let sink = CaptureSink::new();
-        let publisher = MqttPublisher::with_sink(sink.clone(), "nakostat/test/pi/readings");
-        publisher.publish(&test_reading()).unwrap();
-
-        let payload: serde_json::Value = serde_json::from_str(&sink.calls()[0].1).unwrap();
-        assert!(payload.get("temperature_c").is_some());
-        assert!(payload.get("humidity_pct").is_some());
-        assert!(payload.get("eco2_ppm").is_some());
-        assert!(payload.get("tvoc_ppb").is_some());
-        assert!(payload.get("warming_up").is_some());
-        assert!(payload.get("timestamp").is_some());
-        assert_eq!(payload["temperature_c"], 22.5);
-        assert_eq!(payload["eco2_ppm"], 800);
+    fn translate_suback_and_disconnect() {
+        use rumqttc::SubAck;
+        let ok = SubAck::new(
+            1,
+            vec![
+                SubscribeReasonCode::Success(QoS::AtLeastOnce),
+                SubscribeReasonCode::Success(QoS::AtMostOnce),
+            ],
+        );
+        assert_eq!(
+            translate(Event::Incoming(Packet::SubAck(ok))),
+            Some(MqttEvent::Subscribed { ok: true })
+        );
+        let refused = SubAck::new(
+            2,
+            vec![
+                SubscribeReasonCode::Success(QoS::AtLeastOnce),
+                SubscribeReasonCode::Failure,
+            ],
+        );
+        assert_eq!(
+            translate(Event::Incoming(Packet::SubAck(refused))),
+            Some(MqttEvent::Subscribed { ok: false })
+        );
+        assert_eq!(
+            translate(Event::Incoming(Packet::Disconnect)),
+            Some(MqttEvent::Disconnected)
+        );
     }
 
-    #[test]
-    fn publish_warming_up_flag_is_serialised() {
-        let sink = CaptureSink::new();
-        let publisher = MqttPublisher::with_sink(sink.clone(), "t");
-        let mut reading = test_reading();
-        reading.warming_up = true;
-        publisher.publish(&reading).unwrap();
-        let payload: serde_json::Value = serde_json::from_str(&sink.calls()[0].1).unwrap();
-        assert_eq!(payload["warming_up"], true);
-    }
-
-    #[test]
-    fn sink_error_propagates_through_publisher() {
-        struct FailSink;
-        impl MqttSink for FailSink {
-            fn publish(&self, _topic: &str, _payload: &str) -> Result<()> {
-                Err(anyhow::anyhow!("sink failed"))
-            }
-        }
-        let publisher = MqttPublisher::with_sink(Arc::new(FailSink), "t");
-        assert!(publisher.publish(&test_reading()).is_err());
-    }
-
-    fn dummy_cfg(cert_path: &str, key_path: &str) -> crate::config::MqttConfig {
-        crate::config::MqttConfig {
+    fn dummy_cfg(cert_path: &str, key_path: &str) -> MqttConfig {
+        MqttConfig {
             endpoint: "localhost".to_string(),
             port: 8883,
             client_id: "test".to_string(),
             cert_path: cert_path.to_string(),
             key_path: key_path.to_string(),
             topic: "test/topic".to_string(),
+            env: None,
         }
     }
 
     #[tokio::test]
-    async fn new_errors_on_missing_cert_file() {
-        let err = MqttPublisher::new(&dummy_cfg("/nonexistent/cert.pem", "/nonexistent/key.pem"))
+    async fn connect_errors_on_missing_cert_file() {
+        let err = connect(&dummy_cfg("/nonexistent/cert.pem", "/nonexistent/key.pem"))
             .await
             .err()
             .unwrap();
@@ -242,11 +276,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn new_errors_on_missing_key_file() {
+    async fn connect_errors_on_missing_key_file() {
         use std::io::Write;
         let mut cert = tempfile::NamedTempFile::new().unwrap();
         write!(cert, "not a cert").unwrap();
-        let err = MqttPublisher::new(&dummy_cfg(
+        let err = connect(&dummy_cfg(
             cert.path().to_str().unwrap(),
             "/nonexistent/key.pem",
         ))
@@ -257,13 +291,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn new_errors_on_no_private_key_in_pem() {
+    async fn connect_errors_on_no_private_key_in_pem() {
         use std::io::Write;
         let mut cert = tempfile::NamedTempFile::new().unwrap();
         write!(cert, "not a cert").unwrap();
         let mut key = tempfile::NamedTempFile::new().unwrap();
         write!(key, "not a key").unwrap();
-        let err = MqttPublisher::new(&dummy_cfg(
+        let err = connect(&dummy_cfg(
             cert.path().to_str().unwrap(),
             key.path().to_str().unwrap(),
         ))

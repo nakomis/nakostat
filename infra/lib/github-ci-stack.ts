@@ -79,6 +79,21 @@ export class GithubCiStack extends cdk.Stack {
             }),
           ],
         }),
+        // Publish heatlink firmware for Fleet's OTA (kappa-warmer pattern): put and check builds
+        // under nakostat/ in this environment's firmware bucket. ListBucket makes a missing object
+        // answer 404, not 403 (it is unconditional: S3's implicit check carries no prefix).
+        FirmwarePublish: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              actions: ['s3:PutObject', 's3:GetObject'],
+              resources: [`arn:aws:s3:::nakomis-firmware-${deployEnv}/nakostat/*`],
+            }),
+            new iam.PolicyStatement({
+              actions: ['s3:ListBucket'],
+              resources: [`arn:aws:s3:::nakomis-firmware-${deployEnv}`],
+            }),
+          ],
+        }),
         ...(webBucket && webDistribution
           ? {
               WebDeploy: new iam.PolicyDocument({

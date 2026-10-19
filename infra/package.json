@@ -28,6 +28,7 @@
     "@aws-sdk/client-ssm": "^3.0.0",
     "@aws-sdk/lib-dynamodb": "^3.0.0",
     "aws-cdk-lib": "2.273.0",
+    "aws-jwt-verify": "^5.2.1",
     "constructs": "^10.8.1"
   },
   "devDependencies": {

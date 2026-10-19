@@ -17,21 +17,28 @@ A DIY smart thermostat built after the Nest thermostat and Heatlink both failed.
 |--------|------|
 | Raspberry Pi 5 + RC070S 7" touch | Touch-screen UI (1024×600, egui) |
 | ENS160+AHT21 | Temperature, humidity, CO₂/eCO₂/TVOC |
-| ESP32 | Boiler relay controller |
+| ESP32-S3 heatlink | Boiler relay controller (ESP-IDF, Fleet OTA) |
 | 3-way rotary switch | Physical override: auto / off / on |
 | Amazon Echo | Voice control via Alexa thermostat skill |
 
 ## Architecture
 
 ```
-[Pi 5 + RC070S 7" touch] ←MQTT→ [AWS IoT Core]
-        ↑                               ↓
-  [ENS160+AHT21 sensor]        [Lambda / DynamoDB]
-                                        ↓
-[ESP32 boiler controller] ←MQTT→ [IoT Core]     [Alexa skill Lambda]
-   + 3-way manual switch                              ↓
-   (auto / off / on)                        [nakostat.nakomis.com]
+ Pish (dial, separate repo) ─pish/setpoint─┐
+ Web (nakostat.nakomis.com) ─API─► api/{setpoint,mode,schedule} ─┤
+ Alexa Smart Home skill ─Lambda─► api/{setpoint,mode} ───────────┤
+                                                                 ▼
+          Pi sensor daemon (the brain: schedule, override, hysteresis)
+             │ demand every 30 s, set_schedule          ▲ status
+             ▼                                           │
+     nakostat/nakostat-heatlink/commands      …/status, …/responses
+             │                                           │
+          Heatlink (ESP32-S3, ESP-IDF, Fleet OTA) ── relay ── boiler ROOM STAT/TIMER (230 V)
+             ▲
+          3-way switch (on / auto / off); falls back to a local schedule if demand stops
 ```
+
+Contracts (topics, payloads): `docs/superpowers/specs/2026-10-19-heatlink-v2-prototype-design.md`.
 
 ## Repo layout
 
@@ -40,7 +47,7 @@ A DIY smart thermostat built after the Nest thermostat and Heatlink both failed.
 | `3d/` | Printed enclosure models |
 | `docs/` | Architecture diagrams and notes |
 | `embedded/pi/` | Rust/egui touch UI and sensor daemon |
-| `embedded/esp32/` | PlatformIO ESP32 boiler firmware |
+| `embedded/esp32/heatlink/` | ESP-IDF heatlink firmware (boiler relay, switch, fallback schedule); see its [README](embedded/esp32/heatlink/README.md) |
 | `githooks/` | Pre-commit hooks |
 | `infra/` | AWS CDK stacks |
 | `pcb/` | PCB designs |
@@ -62,10 +69,10 @@ Every toolchain is pinned in [`.tool-versions`](.tool-versions), which is the si
 |------|---------|-----------------|
 | `nodejs` | `infra/`, `web/` | `actions/setup-node` with `node-version-file: .tool-versions` |
 | `pnpm` | `infra/`, `web/` | `pnpm/action-setup` reads `packageManager` in `infra/package.json` and `web/package.json`; the **Toolchain pins** job fails if that disagrees with `.tool-versions` |
-| `python` | PlatformIO (`embedded/esp32/`) | `actions/setup-python` with `python-version-file: .tool-versions` |
+| `python` | heatlink host tests (`embedded/esp32/heatlink/tests/`) | `actions/setup-python` with `python-version-file: .tool-versions` |
 | `rust` | `embedded/pi/sensor-daemon/` | the `rust` line is passed to `dtolnay/rust-toolchain` |
 
-With [asdf](https://asdf-vm.com/) (`nodejs`, `pnpm`, `python` and `rust` plugins) run `asdf install` in the repo root; with [mise](https://mise.jdx.dev/), `mise install`. PlatformIO has no asdf plugin, so it is pinned in [`embedded/esp32/requirements.txt`](embedded/esp32/requirements.txt) and installed into the pinned Python with `pip install -r embedded/esp32/requirements.txt`.
+With [asdf](https://asdf-vm.com/) (`nodejs`, `pnpm`, `python` and `rust` plugins) run `asdf install` in the repo root; with [mise](https://mise.jdx.dev/), `mise install`. The heatlink firmware builds with ESP-IDF 5.5 (installed with Espressif's own `install.sh`, not asdf); its host tests need pytest from [`embedded/esp32/heatlink/tests/requirements.txt`](embedded/esp32/heatlink/tests/requirements.txt).
 
 To bump a tool, change `.tool-versions` (and, for pnpm, `packageManager` in `package.json`) in the same PR.
 
@@ -95,7 +102,8 @@ Infra deploys record their version in the shared nakomis deployment tracker (`ap
 ## Related repos
 
 - [`rotary-dial`](https://github.com/nakomis/rotary-dial) — egui thermostat dial widget (migrating into `embedded/pi/`)
-- [`esp32-bootstrap`](https://github.com/nakomis/esp32-bootstrap) — scaffolding tool used to initialise the ESP32 firmware project
+- [`pish`](https://github.com/nakomis/pish) — the Pi touch-screen shell; its `nakostat` widget is the thermostat dial
+- [`nakomis-fleet`](https://github.com/nakomis/nakomis-fleet) — device registry and OTA for the heatlink
 
 ## Licence
 

@@ -7,9 +7,14 @@ vi.mock('react-oidc-context', () => ({
   useAuth: vi.fn(),
 }));
 
-// Stub the live panel — Home's job is routing, not data fetching.
-vi.mock('@/components/CurrentStatePanel', () => ({
-  default: () => <div>panel</div>,
+// Stub the dashboard and router link: Home's job is auth gating, not data fetching.
+vi.mock('@/components/Dashboard', () => ({
+  default: () => <h1>Dashboard</h1>,
+}));
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
+    <a href={to}>{children}</a>
+  ),
 }));
 
 const mockUseAuth = vi.mocked(useAuth);

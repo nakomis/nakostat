@@ -1,145 +1,93 @@
 import { IoTDataPlaneClient, PublishCommand } from '@aws-sdk/client-iot-data-plane';
-import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { type APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { mockClient } from 'aws-sdk-client-mock';
 import { handler } from '../lambda/api/setpoint-handler';
+import { apiEvent, structured } from './api-event';
 
-const dynamoMock = mockClient(DynamoDBDocumentClient);
 const iotMock = mockClient(IoTDataPlaneClient);
+const dynamoMock = mockClient(DynamoDBDocumentClient);
 
 beforeEach(() => {
-  dynamoMock.reset();
   iotMock.reset();
-  process.env.STATE_TABLE_NAME = 'nakostat-state-sandbox';
+  dynamoMock.reset();
+  iotMock.on(PublishCommand).resolves({});
   process.env.DEPLOY_ENV = 'sandbox';
+  jest.useFakeTimers({ now: new Date('2026-10-19T07:30:00.000Z') });
+  jest.spyOn(console, 'error').mockImplementation(() => {});
 });
 
-describe('setpoint handler', () => {
-  const baseEvent = {
-    requestContext: {
-      authorizer: {
-        jwt: {
-          claims: {
-            sub: 'user-123',
-          },
-        },
-      },
-    },
-  } as unknown as APIGatewayProxyEventV2;
+afterEach(() => {
+  jest.useRealTimers();
+  jest.restoreAllMocks();
+});
 
-  test('returns 401 if not authorised', async () => {
-    const event = {
-      ...baseEvent,
-      requestContext: { authorizer: {} },
-    } as unknown as APIGatewayProxyEventV2;
-    const result = (await handler(event)) as any;
+const run = async (body?: unknown) => structured(await handler(apiEvent(body)));
+
+describe('setpoint handler', () => {
+  test('returns 401 without a Cognito subject', async () => {
+    const result = structured(await handler(apiEvent({ temperature: 20 }, null)));
     expect(result.statusCode).toBe(401);
-    expect(result.body).toContain('Unauthorized');
+    expect(iotMock.commandCalls(PublishCommand)).toHaveLength(0);
   });
 
-  test('returns 400 if no request body', async () => {
-    const event = { ...baseEvent, body: undefined } as unknown as APIGatewayProxyEventV2;
-    const result = (await handler(event)) as any;
+  test('returns 400 without a body', async () => {
+    const result = await run();
     expect(result.statusCode).toBe(400);
     expect(result.body).toContain('Request body is required');
   });
 
-  test('returns 400 if body is invalid JSON', async () => {
-    const event = { ...baseEvent, body: 'not json' } as unknown as APIGatewayProxyEventV2;
-    const result = (await handler(event)) as any;
+  test('returns 400 for invalid JSON', async () => {
+    const result = await run('not json');
     expect(result.statusCode).toBe(400);
     expect(result.body).toContain('Invalid JSON');
   });
 
-  test('returns 400 if temperature is not a number', async () => {
-    const event = {
-      ...baseEvent,
-      body: JSON.stringify({ temperature: 'twenty' }),
-    } as unknown as APIGatewayProxyEventV2;
-    const result = (await handler(event)) as any;
+  test.each([
+    ['a string', 'twenty'],
+    ['below 5 °C', 4.9],
+    ['above 30 °C', 30.1],
+    ['missing', undefined],
+    ['not finite', null],
+  ])('returns 400 when the temperature is %s', async (_label, temperature) => {
+    const result = await run({ temperature });
     expect(result.statusCode).toBe(400);
-    expect(result.body).toContain('between 0 and 30');
+    expect(result.body).toContain('between 5 and 30');
+    expect(iotMock.commandCalls(PublishCommand)).toHaveLength(0);
   });
 
-  test('returns 400 if temperature is below 0°C', async () => {
-    const event = {
-      ...baseEvent,
-      body: JSON.stringify({ temperature: -1 }),
-    } as unknown as APIGatewayProxyEventV2;
-    const result = (await handler(event)) as any;
-    expect(result.statusCode).toBe(400);
-    expect(result.body).toContain('between 0 and 30');
+  test('publishes the spec payload to api/setpoint only, writing nothing to DynamoDB', async () => {
+    const result = await run({ temperature: 20.5 });
+
+    expect(result.statusCode).toBe(202);
+    const calls = iotMock.commandCalls(PublishCommand);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args[0].input.topic).toBe('nakostat/sandbox/api/setpoint');
+    expect(calls[0].args[0].input.qos).toBe(1);
+    const payload = JSON.parse(calls[0].args[0].input.payload as string);
+    expect(payload).toEqual({
+      temperature: 20.5,
+      timestamp: '2026-10-19T07:30:00.000Z',
+      userId: 'user-123',
+    });
+    expect(JSON.parse(result.body)).toEqual(payload);
+    expect(dynamoMock.calls()).toHaveLength(0);
   });
 
-  test('returns 400 if temperature is above 30°C', async () => {
-    const event = {
-      ...baseEvent,
-      body: JSON.stringify({ temperature: 31 }),
-    } as unknown as APIGatewayProxyEventV2;
-    const result = (await handler(event)) as any;
-    expect(result.statusCode).toBe(400);
-    expect(result.body).toContain('between 0 and 30');
+  test.each([5, 30])('accepts the boundary %p °C', async (temperature) => {
+    expect((await run({ temperature })).statusCode).toBe(202);
   });
 
-  test('successfully updates setpoint and publishes MQTT message', async () => {
-    dynamoMock.on(UpdateCommand).resolves({});
-    iotMock.on(PublishCommand).resolves({});
-
-    const event = {
-      ...baseEvent,
-      body: JSON.stringify({ temperature: 20 }),
-    } as unknown as APIGatewayProxyEventV2;
-    const result = (await handler(event)) as any;
-
-    expect(result.statusCode).toBe(200);
-    expect(result.body).toContain('20');
-    expect(result.body).toContain('esp32');
-    expect(dynamoMock.commandCalls(UpdateCommand)).toHaveLength(1);
-    expect(iotMock.commandCalls(PublishCommand)).toHaveLength(1);
-
-    const publishCall = iotMock.commandCalls(PublishCommand)[0];
-    const publishPayload = JSON.parse(publishCall.args[0].input.payload as string);
-    expect(publishPayload.temperature).toBe(20);
-    expect(publishPayload.userId).toBe('user-123');
+  test('uses the prod topic in prod', async () => {
+    process.env.DEPLOY_ENV = 'prod';
+    await run({ temperature: 20 });
+    expect(iotMock.commandCalls(PublishCommand)[0].args[0].input.topic).toBe(
+      'nakostat/prod/api/setpoint',
+    );
   });
 
-  test('accepts valid temperature at boundary 0°C', async () => {
-    dynamoMock.on(UpdateCommand).resolves({});
-    iotMock.on(PublishCommand).resolves({});
-
-    const event = {
-      ...baseEvent,
-      body: JSON.stringify({ temperature: 0 }),
-    } as unknown as APIGatewayProxyEventV2;
-    const result = (await handler(event)) as any;
-
-    expect(result.statusCode).toBe(200);
-    expect(result.body).toContain('0');
-  });
-
-  test('accepts valid temperature at boundary 30°C', async () => {
-    dynamoMock.on(UpdateCommand).resolves({});
-    iotMock.on(PublishCommand).resolves({});
-
-    const event = {
-      ...baseEvent,
-      body: JSON.stringify({ temperature: 30 }),
-    } as unknown as APIGatewayProxyEventV2;
-    const result = (await handler(event)) as any;
-
-    expect(result.statusCode).toBe(200);
-    expect(result.body).toContain('30');
-  });
-
-  test('returns 500 on database error', async () => {
-    dynamoMock.on(UpdateCommand).rejects(new Error('DynamoDB error'));
-
-    const event = {
-      ...baseEvent,
-      body: JSON.stringify({ temperature: 20 }),
-    } as unknown as APIGatewayProxyEventV2;
-    const result = (await handler(event)) as any;
-
+  test('returns 500 when the publish fails', async () => {
+    iotMock.on(PublishCommand).rejects(new Error('IoT down'));
+    const result = await run({ temperature: 20 });
     expect(result.statusCode).toBe(500);
     expect(result.body).toContain('Internal server error');
   });

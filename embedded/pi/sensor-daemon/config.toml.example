@@ -8,6 +8,8 @@ client_id = "nakostat-pi-prod"
 cert_path = "/etc/nakostat/certs/pi-cert.pem"
 key_path  = "/etc/nakostat/certs/pi-key.pem"
 topic     = "nakostat/prod/pi/readings"
+# env    = "prod"   # sandbox | prod, for nakostat/{env}/… topics; defaults to the
+                    # second segment of `topic`
 
 [sensor]
 i2c_bus            = 1       # /dev/i2c-1 on Pi 5
@@ -19,3 +21,25 @@ path = "/run/nakostat/sensor.sock"
 
 [schedule]
 path = "/var/lib/nakostat/schedule.json"   # daemon-owned heating schedule (JSON)
+
+# Control loop (STAT-51). Every key is optional; the defaults are shown.
+[control]
+frost_c            = 7.0     # setpoint in mode "off" (and with an empty schedule)
+hysteresis_below_c = 0.3     # demand on when T < setpoint − this
+hysteresis_above_c = 0.2     # demand off when T ≥ setpoint + this
+min_cycle_s        = 180     # short-cycle guard: min seconds between demand changes
+setpoint_jump_c    = 1.0     # a setpoint move this big bypasses the guard
+stale_after_s      = 300     # no good reading for this long → stop sending demand
+demand_interval_s  = 30      # demand heartbeat to the heatlink
+state_interval_s   = 60      # pi/state heartbeat
+state_path         = "/var/lib/nakostat/control.json"   # persisted mode + override
+allow_mock_demand  = false   # mock-sensor builds only: send demand anyway (bench testing)
+
+# The heatlink (ESP32-S3 boiler switch). Every key is optional; defaults shown.
+[heatlink]
+thing                    = "nakostat-heatlink"           # topics nakostat/{thing}/…
+tz                       = "GMT0BST,M3.5.0/1,M10.5.0"    # POSIX TZ for its fallback schedule
+comfort_c                = 18.0    # fallback heats while the scheduled target ≥ this
+duty_pct                 = 67      # fallback duty cycle, % of each hour
+demand_ttl_s             = 300     # ttl_s sent with each demand (heatlink clamps 60–1800)
+schedule_push_interval_s = 21600   # set_schedule re-sent every 6 h

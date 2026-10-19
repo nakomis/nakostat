@@ -1,0 +1,13 @@
+{
+  "accountLinkingRequest": {
+    "type": "AUTH_CODE",
+    "authorizationUrl": "https://LOGIN_DOMAIN/oauth2/authorize",
+    "accessTokenUrl": "https://LOGIN_DOMAIN/oauth2/token",
+    "clientId": "CLIENT_ID",
+    "clientSecret": "CLIENT_SECRET",
+    "accessTokenScheme": "HTTP_BASIC",
+    "scopes": ["openid", "profile", "email"],
+    "domains": [],
+    "defaultTokenExpirationInSeconds": 3600
+  }
+}

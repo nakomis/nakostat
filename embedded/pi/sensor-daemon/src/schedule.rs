@@ -25,6 +25,9 @@ use tracing::{error, info, warn};
 
 const MINUTES_PER_DAY: i32 = 1440;
 
+/// The heatlink stores at most this many entries a day (`set_schedule`).
+pub const MAX_ENTRIES_PER_DAY: usize = 8;
+
 /// Day of the week, ordered Mon..Sun to match the weekly cycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum DayOfWeek {
@@ -189,11 +192,84 @@ impl Schedule {
 
     /// Serialise to the day-keyed JSON form (all seven days, Mon..Sun).
     pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(&self.to_value()).expect("schedule serialisation cannot fail")
+    }
+
+    /// The day-keyed JSON form as a [`serde_json::Value`], for embedding in a
+    /// larger message (`pi/schedule`).
+    pub fn to_value(&self) -> serde_json::Value {
         let map: BTreeMap<DayOfWeek, &[ScheduleEntry]> = DayOfWeek::ALL
             .into_iter()
             .map(|d| (d, self.entries(d)))
             .collect();
-        serde_json::to_string_pretty(&map).expect("schedule serialisation cannot fail")
+        serde_json::to_value(map).expect("schedule serialisation cannot fail")
+    }
+
+    /// True if no day has any entry.
+    pub fn is_empty(&self) -> bool {
+        self.days.iter().all(Vec::is_empty)
+    }
+
+    /// The largest number of entries on any one day.
+    pub fn max_entries_per_day(&self) -> usize {
+        self.days.iter().map(Vec::len).max().unwrap_or(0)
+    }
+
+    /// The days holding more than `max_per_day` entries, Mon first.
+    pub fn overfull_days(&self, max_per_day: usize) -> Vec<DayOfWeek> {
+        DayOfWeek::ALL
+            .into_iter()
+            .filter(|&d| self.entries(d).len() > max_per_day)
+            .collect()
+    }
+
+    /// The compact form the heatlink stores (`set_schedule`): seven days, Mon
+    /// first, each a list of `(minute_of_day, target_c)`, truncated to the
+    /// first `max_per_day` entries a day (with a warning naming the day).
+    pub fn compact_days(&self, max_per_day: usize) -> Vec<Vec<(u16, f32)>> {
+        for d in self.overfull_days(max_per_day) {
+            warn!(
+                "Schedule {d:?} has {} entries; the heatlink gets only the first {max_per_day}",
+                self.entries(d).len()
+            );
+        }
+        DayOfWeek::ALL
+            .into_iter()
+            .map(|d| {
+                self.entries(d)
+                    .iter()
+                    .take(max_per_day)
+                    .map(|e| (e.at.minutes(), e.target_c))
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// The first schedule transition strictly after `now`, in `now`'s time
+    /// zone. Looks up to a week ahead (so a single-entry schedule still has a
+    /// next transition). A transition that falls in a DST gap is moved an hour
+    /// later. `None` only if the schedule is empty.
+    pub fn next_transition_after<Tz: TimeZone>(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
+        let tz = now.timezone();
+        let today = now.date_naive();
+        for offset in 0..=7 {
+            let date = today + chrono::Days::new(offset);
+            for e in self.entries(DayOfWeek::from(date.weekday())) {
+                let minutes = u32::from(e.at.minutes());
+                let naive = date
+                    .and_hms_opt(minutes / 60, minutes % 60, 0)
+                    .expect("TimeOfDay is always a valid time");
+                let local = tz.from_local_datetime(&naive).earliest().or_else(|| {
+                    tz.from_local_datetime(&(naive + chrono::Duration::hours(1)))
+                        .earliest()
+                });
+                match local {
+                    Some(t) if t > *now => return Some(t),
+                    _ => {}
+                }
+            }
+        }
+        None
     }
 
     /// Write the schedule to `path` atomically (temp file + rename), creating
@@ -286,6 +362,14 @@ pub fn load_or_default(path: &Path) -> Schedule {
         Ok((schedule, warnings)) => {
             for w in &warnings {
                 warn!("Schedule {}: {w}", path.display());
+            }
+            for d in schedule.overfull_days(MAX_ENTRIES_PER_DAY) {
+                warn!(
+                    "Schedule {}: {d:?} has {} entries, more than the heatlink's \
+                     {MAX_ENTRIES_PER_DAY}; its fallback gets only the first {MAX_ENTRIES_PER_DAY}",
+                    path.display(),
+                    schedule.entries(d).len()
+                );
             }
             info!("Loaded heating schedule from {}", path.display());
             schedule
@@ -591,6 +675,142 @@ mod tests {
         assert_eq!(s.setpoint_at(DayOfWeek::Sat, tod(7, 0)), Some(14.0));
         assert_eq!(s.setpoint_at(DayOfWeek::Sat, tod(10, 0)), Some(20.0));
         assert_eq!(s.setpoint_at(DayOfWeek::Sun, tod(23, 30)), Some(14.0));
+    }
+
+    #[test]
+    fn is_empty_and_max_entries() {
+        assert!(Schedule::new().is_empty());
+        assert_eq!(Schedule::new().max_entries_per_day(), 0);
+        let s = default_schedule();
+        assert!(!s.is_empty());
+        assert_eq!(s.max_entries_per_day(), 4);
+    }
+
+    #[test]
+    fn to_value_matches_to_json() {
+        let s = default_schedule();
+        let v: serde_json::Value = serde_json::from_str(&s.to_json()).unwrap();
+        assert_eq!(s.to_value(), v);
+    }
+
+    #[test]
+    fn compact_days_is_mon_first_minute_of_day() {
+        let mut s = Schedule::new();
+        s.add(DayOfWeek::Mon, tod(6, 0), 20.0);
+        s.add(DayOfWeek::Mon, tod(9, 0), 16.0);
+        s.add(DayOfWeek::Sun, tod(23, 30), 14.5);
+        let days = s.compact_days(8);
+        assert_eq!(days.len(), 7);
+        assert_eq!(days[0], vec![(360, 20.0), (540, 16.0)]);
+        assert!(days[1].is_empty());
+        assert_eq!(days[6], vec![(1410, 14.5)]);
+    }
+
+    #[test]
+    fn overfull_days_names_each_day_over_the_limit() {
+        let mut s = default_schedule();
+        assert!(s.overfull_days(MAX_ENTRIES_PER_DAY).is_empty());
+        for h in 0..9 {
+            s.add(DayOfWeek::Thu, tod(h, 30), 15.0);
+            s.add(DayOfWeek::Sun, tod(h, 30), 15.0);
+        }
+        assert_eq!(
+            s.overfull_days(MAX_ENTRIES_PER_DAY),
+            vec![DayOfWeek::Thu, DayOfWeek::Sun]
+        );
+    }
+
+    #[test]
+    fn load_keeps_overfull_days_from_disk() {
+        // Lenient on disk: an overfull day loads (with a warning) rather than
+        // falling back to the default; set_schedule then sends the first 8.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("schedule.json");
+        let entries: Vec<String> = (0..10)
+            .map(|h| format!(r#"{{"at":"{h:02}:00","targetC":18.0}}"#))
+            .collect();
+        std::fs::write(&path, format!(r#"{{"Wed":[{}]}}"#, entries.join(","))).unwrap();
+        let s = load_or_default(&path);
+        assert_eq!(s.entries(DayOfWeek::Wed).len(), 10);
+        assert_eq!(s.overfull_days(MAX_ENTRIES_PER_DAY), vec![DayOfWeek::Wed]);
+        assert_eq!(s.compact_days(MAX_ENTRIES_PER_DAY)[2].len(), 8);
+    }
+
+    #[test]
+    fn compact_days_truncates_to_limit() {
+        let mut s = Schedule::new();
+        for h in 0..10 {
+            s.add(DayOfWeek::Tue, tod(h, 0), 15.0);
+        }
+        let days = s.compact_days(8);
+        assert_eq!(days[1].len(), 8);
+        assert_eq!(days[1][7], (420, 15.0));
+    }
+
+    #[test]
+    fn next_transition_later_same_day() {
+        use chrono::Utc;
+        let s = default_schedule();
+        // 2026-10-19 is a Monday.
+        let now = Utc.with_ymd_and_hms(2026, 10, 19, 7, 30, 0).unwrap();
+        assert_eq!(
+            s.next_transition_after(&now),
+            Some(Utc.with_ymd_and_hms(2026, 10, 19, 9, 0, 0).unwrap())
+        );
+    }
+
+    #[test]
+    fn next_transition_is_strictly_after_now() {
+        use chrono::Utc;
+        let s = default_schedule();
+        let now = Utc.with_ymd_and_hms(2026, 10, 19, 9, 0, 0).unwrap();
+        assert_eq!(
+            s.next_transition_after(&now),
+            Some(Utc.with_ymd_and_hms(2026, 10, 19, 17, 0, 0).unwrap())
+        );
+    }
+
+    #[test]
+    fn next_transition_rolls_into_following_days() {
+        use chrono::Utc;
+        let s = default_schedule();
+        // Friday 23:00 → Saturday 08:00.
+        let now = Utc.with_ymd_and_hms(2026, 10, 23, 23, 0, 0).unwrap();
+        assert_eq!(
+            s.next_transition_after(&now),
+            Some(Utc.with_ymd_and_hms(2026, 10, 24, 8, 0, 0).unwrap())
+        );
+    }
+
+    #[test]
+    fn next_transition_single_entry_is_a_week_later() {
+        use chrono::Utc;
+        let mut s = Schedule::new();
+        s.add(DayOfWeek::Mon, tod(7, 0), 20.0);
+        let now = Utc.with_ymd_and_hms(2026, 10, 19, 8, 0, 0).unwrap();
+        assert_eq!(
+            s.next_transition_after(&now),
+            Some(Utc.with_ymd_and_hms(2026, 10, 26, 7, 0, 0).unwrap())
+        );
+    }
+
+    #[test]
+    fn next_transition_empty_schedule_is_none() {
+        use chrono::Utc;
+        let now = Utc.with_ymd_and_hms(2026, 10, 19, 8, 0, 0).unwrap();
+        assert_eq!(Schedule::new().next_transition_after(&now), None);
+    }
+
+    #[test]
+    fn next_transition_respects_time_zone_offset() {
+        use chrono::FixedOffset;
+        let bst = FixedOffset::east_opt(3600).unwrap();
+        let s = default_schedule();
+        // 06:30 local Monday → 07:00 local, i.e. 06:00Z.
+        let now = bst.with_ymd_and_hms(2026, 10, 19, 6, 30, 0).unwrap();
+        let next = s.next_transition_after(&now).unwrap();
+        assert_eq!(next, bst.with_ymd_and_hms(2026, 10, 19, 7, 0, 0).unwrap());
+        assert_eq!(next.naive_utc().to_string(), "2026-10-19 06:00:00");
     }
 
     #[test]
