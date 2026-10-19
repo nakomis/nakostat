@@ -125,6 +125,7 @@ All config values can be overridden at runtime:
 | `NAKOSTAT_CONTROL_DEMAND_INTERVAL_S` | `control.demand_interval_s` |
 | `NAKOSTAT_CONTROL_STATE_INTERVAL_S` | `control.state_interval_s` |
 | `NAKOSTAT_CONTROL_STATE_PATH` | `control.state_path` |
+| `NAKOSTAT_CONTROL_ALLOW_MOCK_DEMAND` | `control.allow_mock_demand` (mock-sensor builds refuse to send demand unless `true`; bench testing only) |
 | `NAKOSTAT_HEATLINK_THING` | `heatlink.thing` |
 | `NAKOSTAT_HEATLINK_TZ` | `heatlink.tz` |
 | `NAKOSTAT_HEATLINK_COMFORT_C` | `heatlink.comfort_c` |
@@ -143,12 +144,16 @@ The daemon is the brain; the heatlink is a switch with a watchdog. Module map:
 | `control.rs` | Pure, clock-injected controller: effective setpoint (off → frost 7 °C; else override until the next schedule transition; else schedule), hysteresis (on < SP−0.3, off ≥ SP+0.2), 3-min short-cycle guard (bypassed by a ≥1 °C setpoint move), stale sensor (> 5 min) → no demand. Mode + override persisted to `control.state_path`. |
 | `messages.rs` | Topics and payloads, exactly as the spec (`docs/superpowers/specs/2026-10-19-heatlink-v2-prototype-design.md`). |
 | `daemon.rs` | Event handling: MQTT messages in → demand / `set_schedule` / `pi/state` / `pi/schedule` out, plus socket lines. |
+| `link.rs` | Pure MQTT link state (disconnected → subscribing → ready): nothing is published while disconnected; the one SUBSCRIBE is retried every 10 s until a SubAck; the connect pushes happen on the SubAck. |
 | `main.rs` | Timers and the event loop only. |
 
 Subscribes to `nakostat/{env}/api/{setpoint,mode,schedule}`, `nakostat/{env}/pish/setpoint`
 and `nakostat/{thing}/status`. Publishes `demand` to `nakostat/{thing}/commands` every 30 s and
-on change, `set_schedule` on connect / schedule change / every 6 h, `pi/state` every 60 s and on
+on change (with `ts`, Unix seconds), `set_schedule` on connect / schedule change / mode change /
+every 6 h (`enabled: false` while mode is off, so the heatlink's fallback stays off), `pi/state` every 60 s and on
 change, `pi/schedule` on change and hourly. Readings are published only after the ENS160
-warm-up, but the control loop uses the AHT21 temperature from the first read.
+warm-up, but the control loop uses the AHT21 temperature from the first read. A setpoint received
+while off switches the mode back to heat. A mock-sensor build never sends demand unless
+`control.allow_mock_demand` is set.
 
 The socket carries reading lines (unchanged) and `{"type":"state",…}` lines (the `pi/state` object).
