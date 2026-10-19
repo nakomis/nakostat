@@ -1,6 +1,7 @@
 mod config;
 mod control;
 mod daemon;
+mod link;
 mod messages;
 mod mqtt;
 mod schedule;
@@ -32,6 +33,24 @@ use sensor::MockSensorReader;
 /// `pi/schedule` is re-published hourly (spec).
 const PI_SCHEDULE_INTERVAL: Duration = Duration::from_secs(3600);
 
+/// How often to check whether the MQTT subscription needs re-sending.
+const LINK_TICK_INTERVAL: Duration = Duration::from_secs(5);
+
+/// The daemon's local zone, for the start-up log: `$TZ`, else the zone
+/// `/etc/localtime` links to, else "unknown".
+fn local_zone_name() -> String {
+    if let Ok(tz) = std::env::var("TZ") {
+        return tz;
+    }
+    std::fs::read_link("/etc/localtime")
+        .ok()
+        .and_then(|p| {
+            let p = p.to_string_lossy().into_owned();
+            p.split_once("zoneinfo/").map(|(_, z)| z.to_owned())
+        })
+        .unwrap_or_else(|| "unknown".to_owned())
+}
+
 /// A ticker whose first tick is one `period` from now (the start-up pushes
 /// happen on MQTT connect instead).
 fn ticker(period: Duration) -> tokio::time::Interval {
@@ -50,6 +69,14 @@ async fn main() -> Result<()> {
     let cfg = Config::from_args()?;
     let env = cfg.mqtt.env();
     info!("nakostat daemon starting (env {env})");
+    // The schedule runs on the daemon's local clock but on the heatlink's
+    // POSIX TZ string; if these disagree the fallback heats at the wrong time.
+    info!(
+        "Local zone {} (UTC{} now); heatlink tz {:?}",
+        local_zone_name(),
+        chrono::Local::now().format("%:z"),
+        cfg.heatlink.tz
+    );
 
     let (sink, mut events, mqtt_handle) = mqtt::connect(&cfg.mqtt).await?;
 
@@ -88,6 +115,11 @@ async fn main() -> Result<()> {
         state_path,
         lines_tx,
     );
+    let allow_demand = cfg!(feature = "real-sensor") || cfg.control.allow_mock_demand;
+    if !cfg!(feature = "real-sensor") && allow_demand {
+        warn!("Mock sensor build with allow_mock_demand: demand WILL drive the heatlink");
+    }
+    daemon.set_demand_allowed(allow_demand);
 
     // The ENS160's gas readings need a few minutes to settle, so readings are
     // only published after the warm-up — but the AHT21 temperature is good at
@@ -103,6 +135,7 @@ async fn main() -> Result<()> {
     let mut state_tick = ticker(Duration::from_secs(cfg.control.state_interval_s));
     let mut push_tick = ticker(Duration::from_secs(cfg.heatlink.schedule_push_interval_s));
     let mut pi_schedule_tick = ticker(PI_SCHEDULE_INTERVAL);
+    let mut link_tick = ticker(LINK_TICK_INTERVAL);
 
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
@@ -126,8 +159,11 @@ async fn main() -> Result<()> {
             _ = state_tick.tick() => daemon.state_tick(Utc::now()),
             _ = push_tick.tick() => daemon.schedule_push_tick(),
             _ = pi_schedule_tick.tick() => daemon.pi_schedule_tick(Utc::now()),
+            _ = link_tick.tick() => daemon.link_tick(Utc::now()),
             ev = events.recv() => match ev {
                 Some(MqttEvent::Connected) => daemon.on_connected(Utc::now()),
+                Some(MqttEvent::Disconnected) => daemon.on_disconnected(),
+                Some(MqttEvent::Subscribed { ok }) => daemon.on_subscribed(ok, Utc::now()),
                 Some(MqttEvent::Message { topic, payload }) => {
                     daemon.on_message(&topic, &payload, Utc::now());
                 }

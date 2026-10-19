@@ -7,10 +7,11 @@ use chrono::{DateTime, TimeZone, Utc};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tracing::{info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::config::HeatlinkConfig;
-use crate::control::{Controller, Demand, PiState};
+use crate::control::{Controller, Demand, Mode, PiState};
+use crate::link::Link;
 use crate::messages::{self, Inbound, Topics};
 use crate::mqtt::MqttSink;
 use crate::sensor::SensorReading;
@@ -29,6 +30,12 @@ pub struct Daemon<Tz: TimeZone> {
     publish_readings: bool,
     last_sent: Option<Demand>,
     last_state_key: Option<PiState>,
+    /// MQTT connection state: nothing is published while disconnected.
+    link: Link,
+    /// False on a mock-sensor build unless `allow_mock_demand` is set: a fake
+    /// temperature must never drive the real boiler.
+    demand_allowed: bool,
+    demand_refusal_logged: bool,
 }
 
 impl<Tz: TimeZone> Daemon<Tz> {
@@ -52,6 +59,9 @@ impl<Tz: TimeZone> Daemon<Tz> {
             publish_readings: false,
             last_sent: None,
             last_state_key: None,
+            link: Link::default(),
+            demand_allowed: true,
+            demand_refusal_logged: false,
         }
     }
 
@@ -59,7 +69,18 @@ impl<Tz: TimeZone> Daemon<Tz> {
         self.publish_readings = on;
     }
 
+    pub fn set_demand_allowed(&mut self, allowed: bool) {
+        self.demand_allowed = allowed;
+    }
+
+    /// Publish if the link is up; otherwise drop the message. Everything the
+    /// daemon publishes is periodic or re-sent once the link is back, and a
+    /// queued backlog would only replay stale state.
     fn publish(&self, topic: &str, payload: &str) {
+        if !self.link.connected() {
+            debug!("MQTT down; dropped publish to {topic}");
+            return;
+        }
         if let Err(e) = self.sink.publish(topic, payload) {
             warn!("MQTT publish to {topic} failed: {e:#}");
         }
@@ -71,10 +92,20 @@ impl<Tz: TimeZone> Daemon<Tz> {
         }
     }
 
-    fn send_demand(&mut self, d: Demand) {
-        let payload = messages::demand_command(&d, self.heatlink.demand_ttl_s);
-        self.publish(&self.topics.heatlink_commands, &payload);
+    fn send_demand(&mut self, d: Demand, now: DateTime<Utc>) {
         self.last_sent = Some(d);
+        if !self.demand_allowed {
+            if !self.demand_refusal_logged {
+                error!(
+                    "Mock sensor build: not sending demand to the heatlink \
+                     (set control.allow_mock_demand for bench testing)"
+                );
+                self.demand_refusal_logged = true;
+            }
+            return;
+        }
+        let payload = messages::demand_command(&d, self.heatlink.demand_ttl_s, now);
+        self.publish(&self.topics.heatlink_commands, &payload);
     }
 
     fn send_state(&mut self, now: DateTime<Utc>) {
@@ -89,8 +120,13 @@ impl<Tz: TimeZone> Daemon<Tz> {
 
     fn send_set_schedule(&self) {
         let h = &self.heatlink;
-        let payload =
-            messages::set_schedule_command(self.ctl.schedule(), &h.tz, h.comfort_c, h.duty_pct);
+        let payload = messages::set_schedule_command(
+            self.ctl.schedule(),
+            self.ctl.mode() == Mode::Heat,
+            &h.tz,
+            h.comfort_c,
+            h.duty_pct,
+        );
         self.publish(&self.topics.heatlink_commands, &payload);
     }
 
@@ -121,7 +157,7 @@ impl<Tz: TimeZone> Daemon<Tz> {
                             d.temperature
                         );
                     }
-                    self.send_demand(d);
+                    self.send_demand(d, now);
                     sent = true;
                 }
                 None => {
@@ -140,14 +176,47 @@ impl<Tz: TimeZone> Daemon<Tz> {
         sent
     }
 
-    /// MQTT (re)connected: resubscribe, then push everything the other side
-    /// may have missed.
+    /// MQTT (re)connected: subscribe. Everything else is pushed once the
+    /// SubAck arrives ([`Daemon::on_subscribed`]).
     pub fn on_connected(&mut self, now: DateTime<Utc>) {
-        for topic in self.topics.subscriptions() {
-            if let Err(e) = self.sink.subscribe(topic) {
-                warn!("Subscribing to {topic} failed: {e:#}");
-            }
+        self.link.on_connack();
+        self.try_subscribe(now);
+    }
+
+    /// The connection dropped: stop publishing until it is back.
+    pub fn on_disconnected(&mut self) {
+        if self.link.on_disconnect() {
+            warn!("MQTT disconnected; dropping publishes until reconnected");
         }
+    }
+
+    /// A SubAck. Once subscribed, push everything the other side may have
+    /// missed; a refused subscription is retried by [`Daemon::link_tick`].
+    pub fn on_subscribed(&mut self, ok: bool, now: DateTime<Utc>) {
+        if self.link.on_suback(ok, now) {
+            info!("MQTT subscribed; pushing schedule, demand and state");
+            self.push_all(now);
+        } else if !ok {
+            warn!("Broker refused a subscription; retrying");
+        }
+    }
+
+    /// Every few seconds: re-send the subscription if no SubAck came back.
+    pub fn link_tick(&mut self, now: DateTime<Utc>) {
+        self.try_subscribe(now);
+    }
+
+    fn try_subscribe(&mut self, now: DateTime<Utc>) {
+        if !self.link.should_subscribe(now) {
+            return;
+        }
+        if let Err(e) = self.sink.subscribe_many(&self.topics.subscriptions()) {
+            warn!("Subscribing failed (will retry): {e:#}");
+        }
+        self.link.subscribe_attempted(now);
+    }
+
+    fn push_all(&mut self, now: DateTime<Utc>) {
         self.send_set_schedule();
         self.send_pi_schedule(now);
         // Forget what was sent so refresh() re-sends demand and state.
@@ -188,29 +257,49 @@ impl<Tz: TimeZone> Daemon<Tz> {
             Inbound::Setpoint {
                 temperature,
                 user_id,
-            } => match self.ctl.set_override(temperature, now) {
-                Ok(o) => {
-                    info!(
-                        "Override {:.1}°C until {} (from {topic}, user {})",
-                        o.setpoint,
-                        crate::control::ts::format(&o.until),
-                        user_id.as_deref().unwrap_or("?")
-                    );
-                    self.persist();
+            } => {
+                let mode_before = self.ctl.mode();
+                match self.ctl.set_override(temperature, now) {
+                    Ok(o) => {
+                        info!(
+                            "Override {:.1}°C until {} (from {topic}, user {})",
+                            o.setpoint,
+                            crate::control::ts::format(&o.until),
+                            user_id.as_deref().unwrap_or("?")
+                        );
+                        self.persist();
+                        if self.ctl.mode() != mode_before {
+                            info!("Setpoint while off: mode back to heat");
+                            self.send_set_schedule();
+                        }
+                    }
+                    Err(e) => warn!("Rejected setpoint on {topic}: {e}"),
                 }
-                Err(e) => warn!("Rejected setpoint on {topic}: {e}"),
-            },
+            }
             Inbound::Mode { mode, user_id } => {
+                let mode_before = self.ctl.mode();
                 if self.ctl.set_mode(mode) {
                     info!("Mode {mode:?} (user {})", user_id.as_deref().unwrap_or("?"));
                     self.persist();
+                }
+                // The heatlink's fallback follows the mode (`enabled`).
+                if self.ctl.mode() != mode_before {
+                    self.send_set_schedule();
                 }
             }
             Inbound::Schedule { schedule, user_id } => {
                 if let Err(e) = schedule.save(&self.schedule_path) {
                     warn!("Saving new schedule failed (applying anyway): {e:#}");
                 }
-                self.ctl.set_schedule(schedule);
+                if self.ctl.set_schedule(schedule, now) {
+                    if let Some(o) = self.ctl.active_override(now) {
+                        info!(
+                            "Override now ends at {} (the new schedule's next transition)",
+                            crate::control::ts::format(&o.until)
+                        );
+                    }
+                    self.persist();
+                }
                 info!(
                     "New schedule applied (user {})",
                     user_id.as_deref().unwrap_or("?")
@@ -227,7 +316,7 @@ impl<Tz: TimeZone> Daemon<Tz> {
     pub fn demand_tick(&mut self, now: DateTime<Utc>) {
         if !self.refresh(now) {
             if let Some(d) = self.last_sent {
-                self.send_demand(d);
+                self.send_demand(d, now);
             }
         }
     }
@@ -282,11 +371,24 @@ mod tests {
     }
 
     impl Rig {
+        /// A daemon whose MQTT link is up and subscribed, with the connect
+        /// pushes (at 00:00) already cleared away.
         fn new() -> Self {
             Self::with(default_schedule(), Persisted::default())
         }
 
         fn with(schedule: Schedule, persisted: Persisted) -> Self {
+            let mut r = Self::offline(schedule, persisted);
+            r.d.on_connected(at(0, 0));
+            r.d.on_subscribed(true, at(0, 0));
+            r.sink.take();
+            r.sink.subscribed.lock().unwrap().clear();
+            r.lines();
+            r
+        }
+
+        /// A daemon that has not connected yet.
+        fn offline(schedule: Schedule, persisted: Persisted) -> Self {
             let dir = tempfile::tempdir().unwrap();
             let sink = Arc::new(CaptureSink::default());
             let (tx, rx) = broadcast::channel(64);
@@ -349,22 +451,37 @@ mod tests {
         }
     }
 
+    fn offline_rig() -> Rig {
+        Rig::offline(default_schedule(), Persisted::default())
+    }
+
+    fn subscribe_calls(r: &Rig) -> usize {
+        r.sink.subscribed.lock().unwrap().len()
+    }
+
     #[test]
-    fn on_connected_subscribes_and_pushes_everything() {
-        let mut r = Rig::new();
+    fn on_connected_subscribes_then_pushes_everything_after_suback() {
+        let mut r = offline_rig();
         r.d.on_connected(at(10, 0));
         assert_eq!(
             *r.sink.subscribed.lock().unwrap(),
-            vec![
+            vec![vec![
                 "nakostat/sandbox/api/setpoint",
                 "nakostat/sandbox/pish/setpoint",
                 "nakostat/sandbox/api/mode",
                 "nakostat/sandbox/api/schedule",
                 "nakostat/nakostat-heatlink/status",
-            ]
+            ]],
+            "one SUBSCRIBE for every topic"
         );
+        assert!(
+            r.sink.published().is_empty(),
+            "nothing pushed before the SubAck"
+        );
+        r.d.on_subscribed(true, at(10, 0));
         let ss = r.commands("set_schedule");
         assert_eq!(ss.len(), 1);
+        assert_eq!(ss[0]["enabled"], true);
         assert_eq!(ss[0]["tz"], "GMT0BST,M3.5.0/1,M10.5.0");
         assert_eq!(ss[0]["comfort_c"], 18.0);
         assert_eq!(ss[0]["duty_pct"], 67);
@@ -383,7 +500,7 @@ mod tests {
         assert_eq!(d.len(), 1);
         assert_eq!(
             d[0],
-            json!({"command":"demand","on":true,"source":"schedule","setpoint":16.0,"temperature":14.0,"ttl_s":300})
+            json!({"command":"demand","on":true,"source":"schedule","setpoint":16.0,"temperature":14.0,"ttl_s":300,"ts":1792404000})
         );
         let s = r.on(STATE);
         assert_eq!(s.len(), 1);
@@ -416,9 +533,201 @@ mod tests {
         let mut r = Rig::new();
         r.d.on_reading(&reading(14.0, at(10, 0)), at(10, 0));
         r.sink.take();
+        r.d.on_disconnected();
         r.d.on_connected(at(10, 0));
+        assert!(r.commands("demand").is_empty(), "not before the SubAck");
+        r.d.on_subscribed(true, at(10, 0));
         assert_eq!(r.commands("demand").len(), 1);
         assert_eq!(r.on(STATE).len(), 1);
+        assert_eq!(r.commands("set_schedule").len(), 1);
+    }
+
+    #[test]
+    fn nothing_is_published_while_disconnected() {
+        let mut r = Rig::new();
+        r.d.set_publish_readings(true);
+        r.d.on_disconnected();
+        r.d.on_reading(&reading(14.0, at(10, 0)), at(10, 0));
+        r.d.demand_tick(at(10, 0));
+        r.d.state_tick(at(10, 0));
+        r.d.schedule_push_tick();
+        r.d.pi_schedule_tick(at(10, 0));
+        r.d.on_message("nakostat/sandbox/api/mode", r#"{"mode":"off"}"#, at(10, 1));
+        assert!(r.sink.published().is_empty(), "{:?}", r.sink.published());
+        // Pish still gets readings and state over the local socket.
+        let lines = r.lines();
+        assert!(lines.iter().any(|l| l.starts_with(r#"{"temperature_c""#)));
+        assert!(lines.iter().any(|l| l.starts_with(r#"{"type":"state""#)));
+        // On reconnect the current state goes out, including mode off.
+        r.d.on_connected(at(10, 2));
+        r.d.on_subscribed(true, at(10, 2));
+        assert_eq!(r.commands("set_schedule")[0]["enabled"], false);
+        assert_eq!(r.commands("demand")[0]["source"], "off");
+        assert_eq!(r.on(STATE)[0]["mode"], "off");
+    }
+
+    #[test]
+    fn nothing_is_published_before_first_connect() {
+        let mut r = offline_rig();
+        r.d.set_publish_readings(true);
+        r.d.on_reading(&reading(14.0, at(10, 0)), at(10, 0));
+        r.d.demand_tick(at(10, 0));
+        assert!(r.sink.published().is_empty());
+    }
+
+    #[test]
+    fn periodic_publishes_continue_while_subscribing() {
+        let mut r = offline_rig();
+        r.d.on_connected(at(10, 0));
+        r.d.on_reading(&reading(14.0, at(10, 0)), at(10, 0));
+        assert_eq!(r.commands("demand").len(), 1);
+    }
+
+    #[test]
+    fn missing_suback_is_retried_on_link_tick() {
+        let mut r = offline_rig();
+        r.d.on_connected(at(10, 0));
+        r.d.link_tick(at(10, 0) + chrono::Duration::seconds(5));
+        assert_eq!(subscribe_calls(&r), 1);
+        r.d.link_tick(at(10, 0) + chrono::Duration::seconds(10));
+        assert_eq!(subscribe_calls(&r), 2);
+        r.d.on_subscribed(true, at(10, 0) + chrono::Duration::seconds(11));
+        r.d.link_tick(at(10, 1));
+        assert_eq!(subscribe_calls(&r), 2, "no retries once subscribed");
+        assert_eq!(r.commands("set_schedule").len(), 1);
+    }
+
+    #[test]
+    fn refused_subscription_is_retried_and_pushes_nothing() {
+        let mut r = offline_rig();
+        r.d.on_connected(at(10, 0));
+        r.d.on_subscribed(false, at(10, 0));
+        assert!(r.commands("set_schedule").is_empty());
+        r.d.link_tick(at(10, 0) + chrono::Duration::seconds(10));
+        assert_eq!(subscribe_calls(&r), 2);
+        r.d.on_subscribed(true, at(10, 0) + chrono::Duration::seconds(11));
+        assert_eq!(r.commands("set_schedule").len(), 1);
+        // A late duplicate SubAck pushes nothing more.
+        r.d.on_subscribed(true, at(10, 0) + chrono::Duration::seconds(12));
+        assert_eq!(r.commands("set_schedule").len(), 1);
+    }
+
+    #[test]
+    fn failed_subscribe_enqueue_is_retried() {
+        struct FullSink(std::sync::Mutex<u32>);
+        impl MqttSink for FullSink {
+            fn publish(&self, _: &str, _: &str) -> anyhow::Result<()> {
+                Ok(())
+            }
+            fn subscribe_many(&self, _: &[&str]) -> anyhow::Result<()> {
+                *self.0.lock().unwrap() += 1;
+                Err(anyhow::anyhow!("channel full"))
+            }
+        }
+        let sink = Arc::new(FullSink(std::sync::Mutex::new(0)));
+        let mut r = offline_rig();
+        r.d.sink = sink.clone();
+        r.d.on_connected(at(10, 0));
+        r.d.link_tick(at(10, 0) + chrono::Duration::seconds(10));
+        r.d.link_tick(at(10, 0) + chrono::Duration::seconds(20));
+        assert_eq!(*sink.0.lock().unwrap(), 3);
+    }
+
+    #[test]
+    fn mode_change_resends_set_schedule_with_enabled() {
+        let mut r = Rig::new();
+        r.d.on_message("nakostat/sandbox/api/mode", r#"{"mode":"off"}"#, at(10, 0));
+        let ss = r.commands("set_schedule");
+        assert_eq!(ss.len(), 1);
+        assert_eq!(ss[0]["enabled"], false);
+        r.d.on_message("nakostat/sandbox/api/mode", r#"{"mode":"off"}"#, at(10, 1));
+        assert_eq!(r.commands("set_schedule").len(), 1, "no change, no resend");
+        r.d.on_message("nakostat/sandbox/api/mode", r#"{"mode":"heat"}"#, at(10, 2));
+        let ss = r.commands("set_schedule");
+        assert_eq!(ss.len(), 2);
+        assert_eq!(ss[1]["enabled"], true);
+    }
+
+    #[test]
+    fn periodic_set_schedule_reflects_mode() {
+        let persisted = Persisted {
+            mode: Mode::Off,
+            override_: None,
+        };
+        let mut r = Rig::with(default_schedule(), persisted);
+        r.d.schedule_push_tick();
+        assert_eq!(r.commands("set_schedule")[0]["enabled"], false);
+    }
+
+    #[test]
+    fn setpoint_while_off_switches_to_heat_and_applies() {
+        let mut r = Rig::new();
+        r.d.on_reading(&reading(17.0, at(10, 0)), at(10, 0));
+        r.d.on_message("nakostat/sandbox/api/mode", r#"{"mode":"off"}"#, at(10, 0));
+        r.sink.take();
+        r.d.on_message(
+            "nakostat/sandbox/api/setpoint",
+            r#"{"temperature":21.0,"userId":"alexa"}"#,
+            at(10, 1),
+        );
+        let ss = r.commands("set_schedule");
+        assert_eq!(ss.len(), 1);
+        assert_eq!(ss[0]["enabled"], true);
+        let d = r.commands("demand");
+        assert_eq!(d[0]["source"], "override");
+        assert_eq!(d[0]["setpoint"], 21.0);
+        assert_eq!(d[0]["on"], true);
+        assert_eq!(r.on(STATE)[0]["mode"], "heat");
+        let saved = Persisted::load(&r.dir.path().join("control.json"));
+        assert_eq!(saved.mode, Mode::Heat);
+        assert_eq!(saved.override_.unwrap().setpoint, 21.0);
+    }
+
+    #[test]
+    fn setpoint_while_heating_does_not_resend_set_schedule() {
+        let mut r = Rig::new();
+        r.d.on_message(
+            "nakostat/sandbox/api/setpoint",
+            r#"{"temperature":21.0}"#,
+            at(10, 0),
+        );
+        assert!(r.commands("set_schedule").is_empty());
+    }
+
+    #[test]
+    fn new_schedule_moves_override_expiry_and_persists() {
+        let mut r = Rig::new();
+        r.d.on_message(
+            "nakostat/sandbox/api/setpoint",
+            r#"{"temperature":21.0}"#,
+            at(10, 0),
+        );
+        r.d.on_message(
+            "nakostat/sandbox/api/schedule",
+            r#"{"schedule":{"Mon":[{"at":"06:00","targetC":19.0},{"at":"12:00","targetC":17.0}]}}"#,
+            at(11, 0),
+        );
+        let saved = Persisted::load(&r.dir.path().join("control.json"));
+        assert_eq!(saved.override_.unwrap().until, at(12, 0));
+        assert_eq!(
+            r.on(STATE).last().unwrap()["override"],
+            json!({"setpoint":21.0,"until":"2026-10-19T12:00:00Z"})
+        );
+    }
+
+    #[test]
+    fn demand_refused_on_mock_build_unless_allowed() {
+        let mut r = Rig::new();
+        r.d.set_demand_allowed(false);
+        r.d.on_reading(&reading(14.0, at(10, 0)), at(10, 0));
+        r.d.demand_tick(at(10, 0));
+        r.d.demand_tick(at(10, 1));
+        assert!(r.commands("demand").is_empty());
+        // State still goes out, so the UI shows what the loop decided.
+        assert_eq!(r.on(STATE).last().unwrap()["demand"], true);
+        r.d.set_demand_allowed(true);
+        r.d.demand_tick(at(10, 2));
+        assert_eq!(r.commands("demand").len(), 1);
     }
 
     #[test]
@@ -704,13 +1013,14 @@ mod tests {
             fn publish(&self, _: &str, _: &str) -> anyhow::Result<()> {
                 Err(anyhow::anyhow!("full"))
             }
-            fn subscribe(&self, _: &str) -> anyhow::Result<()> {
+            fn subscribe_many(&self, _: &[&str]) -> anyhow::Result<()> {
                 Err(anyhow::anyhow!("full"))
             }
         }
         let mut r = Rig::new();
         r.d.sink = Arc::new(FailSink);
         r.d.on_connected(at(10, 0));
+        r.d.on_subscribed(true, at(10, 0));
         r.d.on_reading(&reading(14.0, at(10, 0)), at(10, 0));
         r.d.demand_tick(at(10, 1));
     }

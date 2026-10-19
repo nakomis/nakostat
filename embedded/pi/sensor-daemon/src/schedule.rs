@@ -25,6 +25,9 @@ use tracing::{error, info, warn};
 
 const MINUTES_PER_DAY: i32 = 1440;
 
+/// The heatlink stores at most this many entries a day (`set_schedule`).
+pub const MAX_ENTRIES_PER_DAY: usize = 8;
+
 /// Day of the week, ordered Mon..Sun to match the weekly cycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum DayOfWeek {
@@ -212,10 +215,24 @@ impl Schedule {
         self.days.iter().map(Vec::len).max().unwrap_or(0)
     }
 
+    /// The days holding more than `max_per_day` entries, Mon first.
+    pub fn overfull_days(&self, max_per_day: usize) -> Vec<DayOfWeek> {
+        DayOfWeek::ALL
+            .into_iter()
+            .filter(|&d| self.entries(d).len() > max_per_day)
+            .collect()
+    }
+
     /// The compact form the heatlink stores (`set_schedule`): seven days, Mon
-    /// first, each a list of `(minute_of_day, target_c)`, truncated to
-    /// `max_per_day` entries a day.
+    /// first, each a list of `(minute_of_day, target_c)`, truncated to the
+    /// first `max_per_day` entries a day (with a warning naming the day).
     pub fn compact_days(&self, max_per_day: usize) -> Vec<Vec<(u16, f32)>> {
+        for d in self.overfull_days(max_per_day) {
+            warn!(
+                "Schedule {d:?} has {} entries; the heatlink gets only the first {max_per_day}",
+                self.entries(d).len()
+            );
+        }
         DayOfWeek::ALL
             .into_iter()
             .map(|d| {
@@ -345,6 +362,14 @@ pub fn load_or_default(path: &Path) -> Schedule {
         Ok((schedule, warnings)) => {
             for w in &warnings {
                 warn!("Schedule {}: {w}", path.display());
+            }
+            for d in schedule.overfull_days(MAX_ENTRIES_PER_DAY) {
+                warn!(
+                    "Schedule {}: {d:?} has {} entries, more than the heatlink's \
+                     {MAX_ENTRIES_PER_DAY}; its fallback gets only the first {MAX_ENTRIES_PER_DAY}",
+                    path.display(),
+                    schedule.entries(d).len()
+                );
             }
             info!("Loaded heating schedule from {}", path.display());
             schedule
@@ -679,6 +704,36 @@ mod tests {
         assert_eq!(days[0], vec![(360, 20.0), (540, 16.0)]);
         assert!(days[1].is_empty());
         assert_eq!(days[6], vec![(1410, 14.5)]);
+    }
+
+    #[test]
+    fn overfull_days_names_each_day_over_the_limit() {
+        let mut s = default_schedule();
+        assert!(s.overfull_days(MAX_ENTRIES_PER_DAY).is_empty());
+        for h in 0..9 {
+            s.add(DayOfWeek::Thu, tod(h, 30), 15.0);
+            s.add(DayOfWeek::Sun, tod(h, 30), 15.0);
+        }
+        assert_eq!(
+            s.overfull_days(MAX_ENTRIES_PER_DAY),
+            vec![DayOfWeek::Thu, DayOfWeek::Sun]
+        );
+    }
+
+    #[test]
+    fn load_keeps_overfull_days_from_disk() {
+        // Lenient on disk: an overfull day loads (with a warning) rather than
+        // falling back to the default; set_schedule then sends the first 8.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("schedule.json");
+        let entries: Vec<String> = (0..10)
+            .map(|h| format!(r#"{{"at":"{h:02}:00","targetC":18.0}}"#))
+            .collect();
+        std::fs::write(&path, format!(r#"{{"Wed":[{}]}}"#, entries.join(","))).unwrap();
+        let s = load_or_default(&path);
+        assert_eq!(s.entries(DayOfWeek::Wed).len(), 10);
+        assert_eq!(s.overfull_days(MAX_ENTRIES_PER_DAY), vec![DayOfWeek::Wed]);
+        assert_eq!(s.compact_days(MAX_ENTRIES_PER_DAY)[2].len(), 8);
     }
 
     #[test]

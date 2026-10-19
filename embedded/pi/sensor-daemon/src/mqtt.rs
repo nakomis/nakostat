@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
-use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS, Transport};
+use rumqttc::{
+    AsyncClient, Event, MqttOptions, Packet, QoS, SubscribeFilter, SubscribeReasonCode, Transport,
+};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -13,7 +15,9 @@ use crate::config::MqttConfig;
 /// loop, so this is safe to call from inside the async runtime.
 pub trait MqttSink: Send + Sync + 'static {
     fn publish(&self, topic: &str, payload: &str) -> Result<()>;
-    fn subscribe(&self, topic: &str) -> Result<()>;
+    /// Subscribe to every topic in one SUBSCRIBE packet, so a single SubAck
+    /// ([`MqttEvent::Subscribed`]) confirms them all.
+    fn subscribe_many(&self, topics: &[&str]) -> Result<()>;
 }
 
 /// What the event loop reports back to the daemon.
@@ -21,6 +25,13 @@ pub trait MqttSink: Send + Sync + 'static {
 pub enum MqttEvent {
     /// A (re)connection was acknowledged: resubscribe and push state.
     Connected,
+    /// The connection dropped (event-loop error or a Disconnect from the
+    /// broker); rumqttc reconnects on the next poll.
+    Disconnected,
+    /// A SubAck; `ok` is false if the broker refused any filter.
+    Subscribed {
+        ok: bool,
+    },
     Message {
         topic: String,
         payload: String,
@@ -41,10 +52,13 @@ impl MqttSink for RumqttcSink {
             .with_context(|| format!("queueing publish to {topic}"))
     }
 
-    fn subscribe(&self, topic: &str) -> Result<()> {
+    fn subscribe_many(&self, topics: &[&str]) -> Result<()> {
+        let filters = topics
+            .iter()
+            .map(|t| SubscribeFilter::new((*t).to_owned(), QoS::AtLeastOnce));
         self.client
-            .try_subscribe(topic, QoS::AtLeastOnce)
-            .with_context(|| format!("queueing subscribe to {topic}"))
+            .try_subscribe_many(filters)
+            .with_context(|| format!("queueing subscribe to {topics:?}"))
     }
 }
 
@@ -52,6 +66,13 @@ impl MqttSink for RumqttcSink {
 fn translate(event: Event) -> Option<MqttEvent> {
     match event {
         Event::Incoming(Packet::ConnAck(_)) => Some(MqttEvent::Connected),
+        Event::Incoming(Packet::SubAck(s)) => Some(MqttEvent::Subscribed {
+            ok: s
+                .return_codes
+                .iter()
+                .all(|c| matches!(c, SubscribeReasonCode::Success(_))),
+        }),
+        Event::Incoming(Packet::Disconnect) => Some(MqttEvent::Disconnected),
         Event::Incoming(Packet::Publish(p)) => Some(MqttEvent::Message {
             topic: p.topic,
             payload: String::from_utf8_lossy(&p.payload).into_owned(),
@@ -104,21 +125,31 @@ pub async fn connect(
     let (client, mut eventloop) = AsyncClient::new(opts, 64);
     let (tx, rx) = mpsc::channel(64);
 
+    // Queue behaviour (rumqttc 0.25.1, clean session): requests go into a
+    // bounded channel (64) that the event loop drains only while connected.
+    // On a connection error the loop moves unacked and channel-queued requests
+    // to its `pending` list, which the next clean-session ConnAck discards;
+    // anything enqueued *after* that sits in the channel and is sent once the
+    // link is back. The daemon therefore stops publishing on `Disconnected`,
+    // and stamps demands with `ts` so the heatlink can ignore a late one.
     let handle = tokio::spawn(async move {
         loop {
-            match eventloop.poll().await {
-                Ok(event) => {
-                    if let Some(ev) = translate(event) {
-                        if ev == MqttEvent::Connected {
-                            info!("MQTT connected");
-                        }
-                        if tx.send(ev).await.is_err() {
-                            break; // daemon gone
-                        }
-                    }
-                }
+            let ev = match eventloop.poll().await {
+                Ok(event) => translate(event),
                 Err(e) => {
                     warn!("MQTT event loop error: {e}");
+                    Some(MqttEvent::Disconnected)
+                }
+            };
+            if let Some(ev) = ev {
+                if ev == MqttEvent::Connected {
+                    info!("MQTT connected");
+                }
+                let backoff = ev == MqttEvent::Disconnected;
+                if tx.send(ev).await.is_err() {
+                    break; // daemon gone
+                }
+                if backoff {
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
             }
@@ -135,11 +166,12 @@ pub mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    /// Records every publish and subscribe, for daemon tests.
+    /// Records every publish and subscribe request, for daemon tests.
     #[derive(Default)]
     pub struct CaptureSink {
         pub published: Mutex<Vec<(String, String)>>,
-        pub subscribed: Mutex<Vec<String>>,
+        /// One entry per `subscribe_many` call.
+        pub subscribed: Mutex<Vec<Vec<String>>>,
     }
 
     impl CaptureSink {
@@ -159,8 +191,11 @@ pub mod tests {
                 .push((topic.to_owned(), payload.to_owned()));
             Ok(())
         }
-        fn subscribe(&self, topic: &str) -> Result<()> {
-            self.subscribed.lock().unwrap().push(topic.to_owned());
+        fn subscribe_many(&self, topics: &[&str]) -> Result<()> {
+            self.subscribed
+                .lock()
+                .unwrap()
+                .push(topics.iter().map(|t| (*t).to_owned()).collect());
             Ok(())
         }
     }
@@ -183,6 +218,37 @@ pub mod tests {
             })
         );
         assert_eq!(translate(Event::Incoming(Packet::PingResp)), None);
+    }
+
+    #[test]
+    fn translate_suback_and_disconnect() {
+        use rumqttc::SubAck;
+        let ok = SubAck::new(
+            1,
+            vec![
+                SubscribeReasonCode::Success(QoS::AtLeastOnce),
+                SubscribeReasonCode::Success(QoS::AtMostOnce),
+            ],
+        );
+        assert_eq!(
+            translate(Event::Incoming(Packet::SubAck(ok))),
+            Some(MqttEvent::Subscribed { ok: true })
+        );
+        let refused = SubAck::new(
+            2,
+            vec![
+                SubscribeReasonCode::Success(QoS::AtLeastOnce),
+                SubscribeReasonCode::Failure,
+            ],
+        );
+        assert_eq!(
+            translate(Event::Incoming(Packet::SubAck(refused))),
+            Some(MqttEvent::Subscribed { ok: false })
+        );
+        assert_eq!(
+            translate(Event::Incoming(Packet::Disconnect)),
+            Some(MqttEvent::Disconnected)
+        );
     }
 
     fn dummy_cfg(cert_path: &str, key_path: &str) -> MqttConfig {

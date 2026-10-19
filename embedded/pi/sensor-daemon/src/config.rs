@@ -90,6 +90,10 @@ pub struct ControlConfig {
     pub state_interval_s: u64,
     /// Where mode and override are persisted.
     pub state_path: String,
+    /// Send demand even on a mock-sensor build (no `real-sensor` feature),
+    /// for bench testing a heatlink. Off by default: a fake temperature must
+    /// never drive a real boiler.
+    pub allow_mock_demand: bool,
 }
 
 impl Default for ControlConfig {
@@ -104,6 +108,7 @@ impl Default for ControlConfig {
             demand_interval_s: 30,
             state_interval_s: 60,
             state_path: "/var/lib/nakostat/control.json".to_string(),
+            allow_mock_demand: false,
         }
     }
 }
@@ -245,6 +250,10 @@ impl Config {
         );
         env_override("NAKOSTAT_CONTROL_STATE_INTERVAL_S", &mut c.state_interval_s);
         env_override("NAKOSTAT_CONTROL_STATE_PATH", &mut c.state_path);
+        env_override(
+            "NAKOSTAT_CONTROL_ALLOW_MOCK_DEMAND",
+            &mut c.allow_mock_demand,
+        );
 
         let h = &mut self.heatlink;
         env_override("NAKOSTAT_HEATLINK_THING", &mut h.thing);
@@ -387,6 +396,7 @@ path = "/run/nakostat/sensor.sock"
         assert_eq!(c.demand_interval_s, 30);
         assert_eq!(c.state_interval_s, 60);
         assert_eq!(c.state_path, "/var/lib/nakostat/control.json");
+        assert!(!c.allow_mock_demand);
         let h = &cfg.heatlink;
         assert_eq!(h.thing, "nakostat-heatlink");
         assert_eq!(h.tz, "GMT0BST,M3.5.0/1,M10.5.0");
@@ -401,12 +411,13 @@ path = "/run/nakostat/sensor.sock"
     fn control_and_heatlink_from_toml() {
         let _guard = ENV_LOCK.lock().unwrap();
         let toml = format!(
-            "{VALID_TOML}\n[control]\nfrost_c = 5.0\nmin_cycle_s = 60\n\n[heatlink]\ncomfort_c = 19.5\nduty_pct = 50\n"
+            "{VALID_TOML}\n[control]\nfrost_c = 5.0\nmin_cycle_s = 60\nallow_mock_demand = true\n\n[heatlink]\ncomfort_c = 19.5\nduty_pct = 50\n"
         );
         let (_f, path) = write_toml(&toml);
         let cfg = Config::from_file(&path).unwrap();
         assert_eq!(cfg.control.frost_c, 5.0);
         assert_eq!(cfg.control.min_cycle_s, 60);
+        assert!(cfg.control.allow_mock_demand);
         assert_eq!(cfg.control.stale_after_s, 300, "unset keys keep defaults");
         assert_eq!(cfg.heatlink.comfort_c, 19.5);
         assert_eq!(cfg.heatlink.duty_pct, 50);
@@ -421,6 +432,7 @@ path = "/run/nakostat/sensor.sock"
             ("NAKOSTAT_CONTROL_FROST_C", "6.5"),
             ("NAKOSTAT_CONTROL_STALE_AFTER_S", "600"),
             ("NAKOSTAT_CONTROL_STATE_PATH", "/tmp/c.json"),
+            ("NAKOSTAT_CONTROL_ALLOW_MOCK_DEMAND", "true"),
             ("NAKOSTAT_HEATLINK_DUTY_PCT", "80"),
             ("NAKOSTAT_HEATLINK_THING", "nakostat-heatlink-2"),
             ("NAKOSTAT_HEATLINK_COMFORT_C", "not-a-number"),
@@ -438,6 +450,7 @@ path = "/run/nakostat/sensor.sock"
         assert_eq!(cfg.control.frost_c, 6.5);
         assert_eq!(cfg.control.stale_after_s, 600);
         assert_eq!(cfg.control.state_path, "/tmp/c.json");
+        assert!(cfg.control.allow_mock_demand);
         assert_eq!(cfg.heatlink.duty_pct, 80);
         assert_eq!(cfg.heatlink.thing, "nakostat-heatlink-2");
         assert_eq!(cfg.heatlink.comfort_c, 18.0, "unparseable value ignored");
