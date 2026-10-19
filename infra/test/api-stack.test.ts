@@ -62,8 +62,8 @@ describe('ApiStack — sandbox', () => {
     });
   });
 
-  test('creates four Lambda functions for API handlers', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 4);
+  test('creates six Lambda functions for API handlers', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 6);
   });
 
   test('creates a Cognito JWT authorizer', () => {
@@ -100,6 +100,69 @@ describe('ApiStack — sandbox', () => {
       RouteKey: 'GET /boiler-usage',
       AuthorizationType: 'JWT',
     });
+  });
+
+  test('creates protected POST /mode and PUT /schedule routes', () => {
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'POST /mode',
+      AuthorizationType: 'JWT',
+    });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'PUT /schedule',
+      AuthorizationType: 'JWT',
+    });
+  });
+
+  test('CORS allows GET, POST, PUT and OPTIONS', () => {
+    template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
+      CorsConfiguration: {
+        AllowMethods: Match.arrayWith(['GET', 'POST', 'PUT', 'OPTIONS']),
+      },
+    });
+  });
+
+  test.each([
+    'setpoint',
+    'mode',
+    'schedule',
+  ])('the %s handler may publish only to its api topic', (name) => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: 'iot:Publish',
+            Resource: `arn:aws:iot:eu-west-2:123456789012:topic/nakostat/sandbox/api/${name}`,
+          },
+        ],
+      },
+    });
+  });
+
+  test('control handlers get DEPLOY_ENV and no table (the daemon is the authority)', () => {
+    const fns = Object.values(
+      template.findResources('AWS::Lambda::Function', {
+        Properties: { Environment: { Variables: { DEPLOY_ENV: 'sandbox' } } },
+      }),
+    );
+    expect(fns).toHaveLength(3);
+    for (const fn of fns) {
+      expect(Object.keys(fn.Properties.Environment.Variables)).toEqual(['DEPLOY_ENV']);
+    }
+  });
+
+  test('GET /state handler may only read the state table', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({ Action: Match.arrayWith(['dynamodb:GetItem']) }),
+        ]),
+      },
+    });
+    const writers = Object.values(template.findResources('AWS::IAM::Policy')).filter((p) =>
+      JSON.stringify(p.Properties.PolicyDocument).includes('dynamodb:PutItem'),
+    );
+    expect(writers).toEqual([]);
   });
 
   test('CORS allows POST', () => {
