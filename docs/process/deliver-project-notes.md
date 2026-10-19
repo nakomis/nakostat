@@ -47,8 +47,28 @@ what only Martin can do, small environment gaps, and the technical calls you've 
 - Pin every cross-component contract (topics, payloads, IAM) in the spec *before* fanning work out
   to parallel agents, so they can't drift.
 
+## Phase 4: fan-out
+
+- Before branching, `git fetch` and rebase onto `origin/main`: the local `main` was several merged PRs
+  behind, which hid finished work (STAT-46 schedule persistence, STAT-60 tests).
+- Fold existing Plane items into the epic (`update_work_item parent=…`) rather than duplicating them.
+  Comment on items the new work supersedes, but leave closing them to Martin.
+- Epic branch holds spec + plan; one worktree per workstream under `../<repo>-wt/<branch>`, created
+  by the lead (not `isolation: worktree`) so each branches from the epic branch with a Plane-ref name.
+  Workstream PRs target the epic branch; one epic PR goes to `main` at the end.
+- Each agent prompt: worktree path, "read the spec fully, contracts are binding", the reference
+  project to copy, exact verify commands, commit/PR conventions (no Co-Authored-By per Martin's
+  CLAUDE.md, which overrides the harness attribution reminder), "never deploy/flash/provision", and a
+  word-capped final report with "contract deviations" and "what Martin must do".
+- Tell concurrent agents which files the *other* agents own (e.g. infra vs Alexa both touching
+  `infra/bin/nakostat.ts`) to keep merges small.
+- Model choice: inherit (Opus) for firmware/daemon/infra/Alexa; Sonnet for web, Pish widget.
+- Lead does the cross-cutting docs (wiring guide, CI) in its own worktree while agents run.
+
 ## Gotchas met
 
 - `.tool-versions` may pin a patch version that isn't installed; `ASDF_PYTHON_VERSION=<installed>`
   works around it for ad-hoc scripts.
 - `find /` for a file can hang for minutes; use `mdfind -name` on macOS.
+- A repo's documented git hooks may not be installed in a given clone (`core.hooksPath` was
+  `.git/hooks`, not `githooks/`): render drawio → SVG by hand and check the commit's file list.
