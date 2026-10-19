@@ -6,91 +6,96 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import type { Construct } from 'constructs';
 import * as path from 'path';
+import { HEATLINK_THING_NAME } from './iot-stack';
 
 export interface IotRulesStackProps extends cdk.StackProps {
   deployEnv: 'sandbox' | 'prod';
   readingsTable: dynamodb.ITable;
   stateTable: dynamodb.ITable;
+  boilerUsageTable: dynamodb.ITable;
 }
 
 export class IotRulesStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: IotRulesStackProps) {
     super(scope, id, props);
 
-    const { deployEnv, readingsTable, stateTable } = props;
+    const { deployEnv, readingsTable, stateTable, boilerUsageTable } = props;
+    const heatlinkStatus = `nakostat/${HEATLINK_THING_NAME}/status`;
 
-    const piReadingsHandler = new nodejs.NodejsFunction(this, 'PiReadingsHandler', {
-      entry: path.join(__dirname, '../lambda/iot-rules/pi-readings-handler.ts'),
-      handler: 'handler',
-      runtime: lambda.Runtime.NODEJS_22_X,
-      environment: { READINGS_TABLE_NAME: readingsTable.tableName },
-      bundling: { externalModules: [] },
+    /** A rule handler that IoT may invoke. */
+    const ruleHandler = (id: string, entry: string, environment: Record<string, string>) => {
+      const fn = new nodejs.NodejsFunction(this, id, {
+        entry: path.join(__dirname, `../lambda/iot-rules/${entry}`),
+        handler: 'handler',
+        runtime: lambda.Runtime.NODEJS_22_X,
+        environment,
+        bundling: { externalModules: [] },
+      });
+      fn.addPermission(`IoTInvoke${id}`, {
+        principal: new iam.ServicePrincipal('iot.amazonaws.com'),
+        sourceAccount: this.account,
+      });
+      return fn;
+    };
+
+    const rule = (id: string, ruleName: string, sql: string, fn: lambda.IFunction) =>
+      new iot.CfnTopicRule(this, id, {
+        ruleName: `nakostat_${ruleName}_${deployEnv}`,
+        topicRulePayload: {
+          sql,
+          actions: [{ lambda: { functionArn: fn.functionArn } }],
+          ruleDisabled: false,
+          awsIotSqlVersion: '2016-03-23',
+        },
+      });
+
+    // ── Sensor readings → readings table ─────────────────────────────────────
+    const piReadingsHandler = ruleHandler('PiReadingsHandler', 'pi-readings-handler.ts', {
+      READINGS_TABLE_NAME: readingsTable.tableName,
     });
     readingsTable.grantWriteData(piReadingsHandler);
+    rule(
+      'PiReadingsRule',
+      'pi_readings',
+      `SELECT * FROM 'nakostat/${deployEnv}/pi/readings'`,
+      piReadingsHandler,
+    );
 
-    piReadingsHandler.addPermission('IoTInvokePiReadings', {
-      principal: new iam.ServicePrincipal('iot.amazonaws.com'),
-      sourceAccount: this.account,
+    // ── Latest state per device → state table ────────────────────────────────
+    // One handler; each rule names the item it writes with a literal deviceId.
+    const deviceStateHandler = ruleHandler('DeviceStateHandler', 'device-state-handler.ts', {
+      STATE_TABLE_NAME: stateTable.tableName,
     });
+    stateTable.grantWriteData(deviceStateHandler);
+    rule(
+      'HeatlinkStateRule',
+      'heatlink_state',
+      `SELECT *, 'heatlink' AS deviceId FROM '${heatlinkStatus}'`,
+      deviceStateHandler,
+    );
+    rule(
+      'PiStateRule',
+      'pi_state',
+      `SELECT *, 'pi' AS deviceId FROM 'nakostat/${deployEnv}/pi/state'`,
+      deviceStateHandler,
+    );
+    rule(
+      'PiScheduleRule',
+      'pi_schedule',
+      `SELECT *, 'schedule' AS deviceId FROM 'nakostat/${deployEnv}/pi/schedule'`,
+      deviceStateHandler,
+    );
 
-    new iot.CfnTopicRule(this, 'PiReadingsRule', {
-      ruleName: `nakostat_pi_readings_${deployEnv}`,
-      topicRulePayload: {
-        sql: `SELECT * FROM 'nakostat/${deployEnv}/pi/readings'`,
-        actions: [{ lambda: { functionArn: piReadingsHandler.functionArn } }],
-        ruleDisabled: false,
-        awsIotSqlVersion: '2016-03-23',
-      },
+    // ── Boiler on/off history → boiler-usage table ───────────────────────────
+    const boilerEventHandler = ruleHandler('BoilerEventHandler', 'boiler-event-handler.ts', {
+      BOILER_USAGE_TABLE_NAME: boilerUsageTable.tableName,
     });
-
-    const esp32StatusHandler = new nodejs.NodejsFunction(this, 'Esp32StatusHandler', {
-      entry: path.join(__dirname, '../lambda/iot-rules/esp32-status-handler.ts'),
-      handler: 'handler',
-      runtime: lambda.Runtime.NODEJS_22_X,
-      environment: { STATE_TABLE_NAME: stateTable.tableName },
-      bundling: { externalModules: [] },
-    });
-    stateTable.grantWriteData(esp32StatusHandler);
-
-    esp32StatusHandler.addPermission('IoTInvokeEsp32Status', {
-      principal: new iam.ServicePrincipal('iot.amazonaws.com'),
-      sourceAccount: this.account,
-    });
-
-    new iot.CfnTopicRule(this, 'Esp32StatusRule', {
-      ruleName: `nakostat_esp32_status_${deployEnv}`,
-      topicRulePayload: {
-        sql: `SELECT * FROM 'nakostat/${deployEnv}/esp32/status'`,
-        actions: [{ lambda: { functionArn: esp32StatusHandler.functionArn } }],
-        ruleDisabled: false,
-        awsIotSqlVersion: '2016-03-23',
-      },
-    });
-
-    // Setpoint changes from the Pish touch display's dial. Applied to the
-    // state table exactly as the setpoint API does.
-    const pishSetpointHandler = new nodejs.NodejsFunction(this, 'PishSetpointHandler', {
-      entry: path.join(__dirname, '../lambda/iot-rules/pish-setpoint-handler.ts'),
-      handler: 'handler',
-      runtime: lambda.Runtime.NODEJS_22_X,
-      environment: { STATE_TABLE_NAME: stateTable.tableName },
-      bundling: { externalModules: [] },
-    });
-    stateTable.grantWriteData(pishSetpointHandler);
-
-    pishSetpointHandler.addPermission('IoTInvokePishSetpoint', {
-      principal: new iam.ServicePrincipal('iot.amazonaws.com'),
-      sourceAccount: this.account,
-    });
-
-    new iot.CfnTopicRule(this, 'PishSetpointRule', {
-      ruleName: `nakostat_pish_setpoint_${deployEnv}`,
-      topicRulePayload: {
-        sql: `SELECT * FROM 'nakostat/${deployEnv}/pish/setpoint'`,
-        actions: [{ lambda: { functionArn: pishSetpointHandler.functionArn } }],
-        ruleDisabled: false,
-        awsIotSqlVersion: '2016-03-23',
-      },
-    });
+    boilerUsageTable.grantWriteData(boilerEventHandler);
+    rule(
+      'HeatlinkBoilerUsageRule',
+      'heatlink_boiler_usage',
+      `SELECT relay, source FROM '${heatlinkStatus}' WHERE reason = 'change'`,
+      boilerEventHandler,
+    );
   }
 }

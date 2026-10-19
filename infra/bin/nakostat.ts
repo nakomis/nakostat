@@ -49,6 +49,7 @@ new IotRulesStack(app, 'NakostatIotRulesStack', {
   deployEnv,
   readingsTable: dynamoStack.readingsTable,
   stateTable: dynamoStack.stateTable,
+  boilerUsageTable: dynamoStack.boilerUsageTable,
   description: `IoT Topic Rules routing MQTT to DynamoDB (${deployEnv})`,
 });
 
