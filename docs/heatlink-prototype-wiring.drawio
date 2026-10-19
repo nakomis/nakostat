@@ -1,0 +1,76 @@
+<mxfile>
+<diagram name="Heatlink prototype wiring" id="wiring">
+<mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1300" pageHeight="760" adaptiveColors="auto">
+<root>
+<mxCell id="0"/>
+<mxCell id="1" parent="0"/>
+<mxCell id="title" value="&lt;b&gt;Nakostat heatlink v2 — breadboard prototype wiring&lt;/b&gt;&lt;br&gt;ESP32-S3-DevKitC-1 N16R8 · STAT-69" style="text;html=1;align=left;verticalAlign=top;fontSize=16;" vertex="1" parent="1">
+<mxGeometry x="20" y="10" width="700" height="50" as="geometry"/>
+</mxCell>
+<mxCell id="lv" value="LOW VOLTAGE (5 V / 3.3 V) — breadboard side" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;align=left;spacingLeft=10;fontStyle=1;dashed=0;arcSize=3;" vertex="1" parent="1">
+<mxGeometry x="20" y="70" width="800" height="660" as="geometry"/>
+</mxCell>
+<mxCell id="mains" value="MAINS 230 V — relay compartment, behind the barrier. Isolate at the boiler spur first." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;verticalAlign=top;align=left;spacingLeft=10;fontStyle=1;arcSize=3;" vertex="1" parent="1">
+<mxGeometry x="850" y="70" width="430" height="660" as="geometry"/>
+</mxCell>
+<mxCell id="usb" value="5 V USB charger&lt;br&gt;(USB-C cable)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;" vertex="1" parent="1">
+<mxGeometry x="50" y="120" width="140" height="60" as="geometry"/>
+</mxCell>
+<mxCell id="esp" value="&lt;b&gt;ESP32-S3-DevKitC-1&lt;/b&gt;&lt;br&gt;&lt;br&gt;5V&lt;br&gt;GND&lt;br&gt;GPIO4 → relay IN&lt;br&gt;GPIO5 ← switch ON throw&lt;br&gt;GPIO6 ← switch OFF throw&lt;br&gt;GPIO48 onboard RGB LED (rev 1.1: GPIO38)&lt;br&gt;&lt;br&gt;&lt;i&gt;avoid 0, 3, 19, 20, 35–37, 43–46&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=10;" vertex="1" parent="1">
+<mxGeometry x="260" y="110" width="300" height="200" as="geometry"/>
+</mxCell>
+<mxCell id="relay" value="&lt;b&gt;Relay module (mains-rated)&lt;/b&gt;&lt;br&gt;LV header: VCC · GND · IN&lt;br&gt;&lt;br&gt;Active-low (default): GPIO4 open-drain,&lt;br&gt;low = ON, released = OFF" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;spacingLeft=10;" vertex="1" parent="1">
+<mxGeometry x="580" y="380" width="230" height="120" as="geometry"/>
+</mxCell>
+<mxCell id="contacts" value="&lt;b&gt;Relay contacts&lt;/b&gt;&lt;br&gt;COM · NO · (NC unused)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+<mxGeometry x="880" y="400" width="180" height="80" as="geometry"/>
+</mxCell>
+<mxCell id="boiler" value="&lt;b&gt;Ideal Logic+ Combi terminal strip&lt;/b&gt;&lt;br&gt;ROOM STAT/TIMER pair&lt;br&gt;&lt;i&gt;remove the factory link wire&lt;/i&gt;&lt;br&gt;(L / N / FROST STAT untouched)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;" vertex="1" parent="1">
+<mxGeometry x="1080" y="560" width="180" height="100" as="geometry"/>
+</mxCell>
+<mxCell id="sw" value="&lt;b&gt;3-way switch&lt;/b&gt; (ON-OFF-ON)&lt;br&gt;up = ON · centre = AUTO · down = OFF&lt;br&gt;common → GND" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+<mxGeometry x="260" y="420" width="250" height="80" as="geometry"/>
+</mxCell>
+<mxCell id="bench" value="&lt;b&gt;Bench test instead of mains:&lt;/b&gt;&lt;br&gt;COM → 3.3 V via 330 Ω, NO → LED → GND.&lt;br&gt;The breadboard never carries 230 V." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;dashed=1;align=left;spacingLeft=8;" vertex="1" parent="1">
+<mxGeometry x="40" y="600" width="330" height="80" as="geometry"/>
+</mxCell>
+<mxCell id="barrier" value="" style="endArrow=none;html=1;strokeWidth=4;dashed=1;strokeColor=#b85450;" edge="1" parent="1">
+<mxGeometry relative="1" as="geometry">
+<mxPoint x="835" y="80" as="sourcePoint"/>
+<mxPoint x="835" y="720" as="targetPoint"/>
+</mxGeometry>
+</mxCell>
+<mxCell id="barrierlbl" value="barrier wall" style="text;html=1;rotation=-90;fontColor=#b85450;fontStyle=2;" vertex="1" parent="1">
+<mxGeometry x="790" y="250" width="90" height="20" as="geometry"/>
+</mxCell>
+<mxCell id="e1" value="USB-C (5 V)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="usb" target="esp">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="e2" value="5V → VCC" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.2;exitDx=0;exitDy=0;labelBackgroundColor=#ffffff;html=1;strokeWidth=2;strokeColor=#d79b00;" edge="1" parent="1" source="esp" target="relay">
+<mxGeometry relative="1" as="geometry">
+<Array as="points"><mxPoint x="620" y="150"/></Array>
+</mxGeometry>
+</mxCell>
+<mxCell id="e3" value="GND → GND" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.4;exitDx=0;exitDy=0;labelBackgroundColor=#ffffff;html=1;strokeWidth=2;strokeColor=#000000;" edge="1" parent="1" source="esp" target="relay">
+<mxGeometry relative="1" as="geometry">
+<Array as="points"><mxPoint x="695" y="190"/></Array>
+</mxGeometry>
+</mxCell>
+<mxCell id="e4" value="GPIO4 → IN" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.6;exitDx=0;exitDy=0;labelBackgroundColor=#ffffff;html=1;strokeWidth=2;strokeColor=#6c8ebf;" edge="1" parent="1" source="esp" target="relay">
+<mxGeometry relative="1" as="geometry">
+<Array as="points"><mxPoint x="770" y="230"/></Array>
+</mxGeometry>
+</mxCell>
+<mxCell id="e5" value="GPIO5 / GPIO6 (internal pull-ups)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;strokeColor=#9673a6;" edge="1" parent="1" source="sw" target="esp">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="e6" value="coil drives" style="html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="relay" target="contacts">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="e7" value="COM + NO via PG7 gland,&lt;br&gt;0.75 mm² mains-rated flex" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=3;strokeColor=#b85450;" edge="1" parent="1" source="contacts" target="boiler">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+</root>
+</mxGraphModel>
+</diagram>
+</mxfile>
