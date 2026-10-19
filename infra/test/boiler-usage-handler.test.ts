@@ -22,6 +22,13 @@ describe('boiler-usage handler', () => {
       queryStringParameters,
     }) as unknown as APIGatewayProxyEventV2;
 
+  test('queries the heatlink boiler history', async () => {
+    dynamoMock.on(QueryCommand).resolves({ Items: [] });
+    await handler(mockEvent());
+    const queryCall = dynamoMock.commandCalls(QueryCommand)[0]!;
+    expect(queryCall.args[0].input.ExpressionAttributeValues![':boilerId']).toBe('heatlink');
+  });
+
   test('returns events from last 30 days by default', async () => {
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -29,10 +36,10 @@ describe('boiler-usage handler', () => {
     dynamoMock.on(QueryCommand).resolves({
       Items: [
         {
-          boilerId: 'esp32',
+          boilerId: 'heatlink',
           timestamp: now.toISOString(),
           state: 'on',
-          source: 'UserRequest',
+          source: 'override',
           userId: 'user-123',
         },
       ],
@@ -92,43 +99,43 @@ describe('boiler-usage handler', () => {
     dynamoMock.on(QueryCommand).resolves({
       Items: [
         {
-          boilerId: 'esp32',
+          boilerId: 'heatlink',
           timestamp: '2026-04-27T10:00:00Z',
           state: 'on',
-          source: 'Schedule',
+          source: 'schedule',
         },
         {
-          boilerId: 'esp32',
+          boilerId: 'heatlink',
           timestamp: '2026-04-27T11:00:00Z',
           state: 'off',
-          source: 'UserRequest',
+          source: 'override',
           userId: 'user-123',
         },
       ],
     });
 
-    const result = (await handler(mockEvent({ source: 'UserRequest' }))) as any;
+    const result = (await handler(mockEvent({ source: 'override' }))) as any;
 
     expect(result.statusCode).toBe(200);
     const body = JSON.parse(result.body);
     expect(body).toHaveLength(1);
-    expect(body[0].source).toBe('UserRequest');
+    expect(body[0].source).toBe('override');
   });
 
   test('returns events sorted newest-first (ScanIndexForward: false)', async () => {
     const now = new Date();
     const events = [
       {
-        boilerId: 'esp32',
+        boilerId: 'heatlink',
         timestamp: now.toISOString(),
         state: 'on',
-        source: 'Schedule',
+        source: 'schedule',
       },
       {
-        boilerId: 'esp32',
+        boilerId: 'heatlink',
         timestamp: new Date(now.getTime() - 1000).toISOString(),
         state: 'off',
-        source: 'Schedule',
+        source: 'schedule',
       },
     ];
 

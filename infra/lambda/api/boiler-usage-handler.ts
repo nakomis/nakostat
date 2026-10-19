@@ -56,7 +56,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
           '#ts': 'timestamp',
         },
         ExpressionAttributeValues: {
-          ':boilerId': 'esp32',
+          ':boilerId': 'heatlink',
           ':from': from.toISOString(),
           ':to': to.toISOString(),
         },

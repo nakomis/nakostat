@@ -192,12 +192,14 @@ Power comes from a 5 V USB charger into the DevKitC's USB port. The relay module
   - `pi/state` → `deviceId="pi"`;
   - `pi/schedule` → `deviceId="schedule"`;
   - heatlink status with `reason="change"` → boiler-usage Lambda, which writes `{state, source}`;
-  - the esp32 rule is removed.
+  - the esp32 rule is removed, and so is the Pish setpoint rule (the daemon, not the state table, holds the setpoint).
 - **ApiStack**:
   - `GET /state` returns `{pi, heatlink, schedule}`;
   - `POST /setpoint` publishes only (the daemon is the authority);
   - new `POST /mode` and `PUT /schedule`;
-  - `GET /readings` and `GET /boiler-usage` are unchanged.
+  - the three control routes answer `202` with the message they published;
+  - `GET /readings` gains optional ISO-8601 `from` and `to` (newest first, at most 2000 rows) so the web can chart 24 h; without them it is unchanged;
+  - `GET /boiler-usage` is unchanged (it reads `boilerId="heatlink"`).
 - **AlexaStack (eu-west-1, new)**:
   - a Smart Home skill Lambda covering `Alexa.Discovery`, `Alexa.Authorization` (AcceptGrant),
     `Alexa.ThermostatController` (SetTargetTemperature, AdjustTargetTemperature, SetThermostatMode
