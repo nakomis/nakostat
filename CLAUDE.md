@@ -7,8 +7,8 @@ DIY smart thermostat replacing a broken Nest + Heatlink.
 Read these only when the conversation turns to that area:
 
 - **Pi UI** (Rust/egui, touch dial): `embedded/pi/CLAUDE.md`
-- **ESP32 firmware** (boiler relay, sensors, OTA): `embedded/esp32/CLAUDE.md`
-- **Infrastructure** (AWS CDK, IoT Core, DynamoDB, Alexa skill): `infra/CLAUDE.md`
+- **Heatlink firmware** (ESP-IDF, relay, switch, Fleet OTA): `embedded/esp32/heatlink/README.md`
+- **Infrastructure** (AWS CDK, IoT Core, DynamoDB, API): the design spec in `docs/superpowers/specs/`; Alexa skill setup: `docs/alexa-setup.md`
 
 ## Always apply
 
@@ -27,7 +27,7 @@ This project adopts a **test-first approach** wherever practical:
 - Integration/component tests for interactions between subsystems.
 - Functional/end-to-end tests for user-visible behaviour.
 - CI enforces a minimum **70% code coverage** across each sub-project. Aim higher.
-- ESP32 firmware: use PlatformIO's `native` environment for host-side unit tests of logic that doesn't touch hardware registers directly.
+- Heatlink firmware: keep logic in portable C under `embedded/esp32/heatlink/port/`, built natively and tested with pytest (`tests/`); the IDF glue in `esp32s3/main/` stays thin.
 - Rust (Pi UI): `cargo test` + `cargo llvm-cov` for coverage.
 - CDK/Lambda (TypeScript): Jest tests for CDK constructs and Lambda handlers.
 - React (web): Vitest + React Testing Library for components; Playwright for functional tests.
@@ -36,14 +36,21 @@ This project adopts a **test-first approach** wherever practical:
 ## Architecture overview
 
 ```
-[Pi 5 + RC070S 7" touch] ←MQTT→ [AWS IoT Core]
-        ↑                               ↓
-  [ENS160+AHT21 sensor]        [Lambda / DynamoDB]
-                                        ↓
-[ESP32 boiler controller] ←MQTT→ [IoT Core]     [Alexa skill Lambda]
-   + 3-way manual switch                              ↓
-   (auto / off / on)                        [nakostat.nakomis.com]
+ Pish (dial, separate repo) ─pish/setpoint─┐
+ Web (nakostat.nakomis.com) ─API─► api/{setpoint,mode,schedule} ─┤
+ Alexa Smart Home skill ─Lambda─► api/{setpoint,mode} ───────────┤
+                                                                 ▼
+          Pi sensor daemon (the brain: schedule, override, hysteresis)
+             │ demand every 30 s, set_schedule          ▲ status
+             ▼                                           │
+     nakostat/nakostat-heatlink/commands      …/status, …/responses
+             │                                           │
+          Heatlink (ESP32-S3, ESP-IDF, Fleet OTA) ── relay ── boiler ROOM STAT/TIMER (230 V)
+             ▲
+          3-way switch (on / auto / off); falls back to a local schedule if demand stops
 ```
+
+Contracts (topics, payloads): `docs/superpowers/specs/2026-10-19-heatlink-v2-prototype-design.md`.
 
 ## Key hardware
 
@@ -52,7 +59,7 @@ This project adopts a **test-first approach** wherever practical:
 | Raspberry Pi 5 | Touch-screen thermostat UI, temperature/air quality sensor host |
 | RC070S (Elecrow 7" 1024×600) | Touch display |
 | ENS160+AHT21 | CO₂/eCO₂/TVOC + temperature/humidity sensor (on Pi) |
-| ESP32 (boiler unit) | Boiler relay controller; polls IoT message queue |
+| ESP32-S3 heatlink (boiler unit) | Relay on the boiler's 230 V `ROOM STAT/TIMER` pair; follows the daemon's demand, falls back to a local schedule |
 | 3-way rotary switch | Physical override: auto / off / on |
 | Amazon Echo | Voice control ("Alexa, set the heating to 20 degrees") |
 
@@ -64,19 +71,28 @@ nakostat/
 ├── docs/        Architecture diagrams and notes
 ├── embedded/
 │   ├── pi/      Rust/egui touch UI + sensor daemon
-│   └── esp32/   PlatformIO firmware for boiler controller
+│   └── esp32/heatlink/   ESP-IDF firmware for the boiler heatlink
 ├── githooks/    Git hooks (drawio→svg, README TOC)
 ├── infra/       AWS CDK stacks
-├── pcb/         PCB designs (Fritzing)
+├── pcb/         PCB (Phase 2: generated in code, tinycrypt pipeline)
 ├── scripts/     Helper scripts
 └── web/         React SPA — nakostat.nakomis.com dashboard
 ```
 
 ## ESP32 firmware conventions
 
-Inherit from the bootboots project — read `../bootboots/embedded/CLAUDE.md` for the
-full picture. Key points:
-- PlatformIO, Arduino framework
-- OTA via custom BLE/S3 flow (not Arduino OTA)
-- WiFi credentials in NVS, not in code
-- Secrets generated from SSM via `generate_secrets.py`, never committed
+The heatlink follows the kappa-warmer / tinycrypt pattern (not the old Arduino/esp32-bootstrap one).
+Full details: `embedded/esp32/heatlink/README.md`.
+- ESP-IDF 5.5 (`~/esp/v5.5/esp-idf`), ESP32-S3, no PSRAM, 4 MB partition table, 160 MHz.
+- Fleet device: project `nakostat`, Thing `nakostat-heatlink`, topics `nakostat/<thing>/{commands,responses,status}`;
+  OTA through Fleet with rollback; don't change Fleet's message shapes.
+- Credentials (Wi-Fi, IoT endpoint, cert, key) live in the `prov` NVS partition, written by
+  `scripts/provision-device.sh`; never in the image, never through CloudFormation.
+- CI builds, and publishes to `s3://nakomis-firmware-{env}/nakostat/<version>/` on merge; bump
+  `esp32s3/version.txt` with every firmware change.
+
+## Hardware and wiring
+
+- Prototype wiring, bench test and live-trial procedure: `docs/heatlink-prototype-wiring.md`.
+- Prototype case: `3d/heatlink-prototype/` (OpenSCAD; `make.sh`).
+- The boiler (Ideal Logic+ Combi) switches its call for heat at **230 V**; see `bom.md` §2 and §4.
