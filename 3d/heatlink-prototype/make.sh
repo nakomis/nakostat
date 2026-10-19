@@ -68,6 +68,12 @@ echo "== rib overlap (lid ribs vs barrier): must be non-empty"
 run "$CHK/rib.stl" rib_overlap "$@"
 grep -q 'Current top level object is empty' "$LOG" && fail "lid ribs do not reach over the barrier"
 
+# CI sets NO_PREVIEWS: PNG export needs an OpenGL context the runner doesn't have.
+if [[ -n "${NO_PREVIEWS:-}" ]]; then
+    echo "OK (no previews): $(ls "$OUT")"
+    exit 0
+fi
+
 echo "== previews"
 run "$OUT/heatlink-case-base.png"     base     "$@" "${PNG[@]}" --camera=0,0,0,55,0,25,0
 run "$OUT/heatlink-case-base-top.png" base     "$@" "${PNG[@]}" --projection=o --camera=0,0,0,0,0,0,0
