@@ -1,54 +1,121 @@
 import { describe, expect, it } from 'vitest';
-import { setpointRequest, setpointResponse, thermostatState } from './contract';
+import {
+  boilerEvent,
+  contract,
+  heatlinkStatus,
+  modeRequest,
+  piState,
+  readingsResponse,
+  scheduleRequest,
+  setpointRequest,
+  stateResponse,
+} from './contract';
 
-describe('thermostatState schema', () => {
-  it('accepts a full state item', () => {
-    const parsed = thermostatState.parse({
-      deviceId: 'esp32',
-      setpoint: 20,
-      boilerActive: true,
-      mode: 'auto',
-      updatedAt: '2026-06-03T20:00:00Z',
-      setpointUpdatedAt: '2026-06-03T20:05:00Z',
+const emptyDays = { Mon: [], Tue: [], Wed: [], Thu: [], Fri: [], Sat: [], Sun: [] };
+const pi = {
+  timestamp: '2026-10-19T10:00:00Z',
+  temperature: 19.8,
+  humidity: 45.2,
+  mode: 'heat',
+  setpoint: 20.5,
+  scheduled_setpoint: 20,
+  override: { setpoint: 20.5, until: '2026-10-19T12:00:00Z' },
+  demand: true,
+  demand_source: 'override',
+};
+const hl = {
+  mode: 'auto',
+  relay: true,
+  switch: 'auto',
+  source: 'schedule',
+  seen: '2026-10-19T10:00:00Z',
+  version: '1.0.0',
+};
+
+describe('stateResponse', () => {
+  it('accepts a full state', () => {
+    const parsed = stateResponse.parse({
+      pi,
+      heatlink: hl,
+      schedule: { schedule: emptyDays, timestamp: 'x' },
     });
-    expect(parsed.deviceId).toBe('esp32');
-    expect(parsed.boilerActive).toBe(true);
+    expect(parsed.pi?.override?.until).toBe('2026-10-19T12:00:00Z');
   });
 
-  it('accepts a minimal item with only deviceId', () => {
-    expect(thermostatState.parse({ deviceId: 'esp32' })).toEqual({ deviceId: 'esp32' });
+  it('accepts all-null parts', () => {
+    expect(stateResponse.parse({ pi: null, heatlink: null, schedule: null }).pi).toBeNull();
   });
 
-  it('rejects a missing deviceId', () => {
-    expect(thermostatState.safeParse({ setpoint: 20 }).success).toBe(false);
+  it('accepts a pi state with null override and missing sensor', () => {
+    expect(piState.safeParse({ ...pi, override: null, temperature: null }).success).toBe(true);
   });
 
-  it('rejects a non-numeric setpoint', () => {
-    expect(thermostatState.safeParse({ deviceId: 'esp32', setpoint: 'hot' }).success).toBe(false);
+  it('rejects an unknown heatlink mode', () => {
+    expect(heatlinkStatus.safeParse({ ...hl, mode: 'weird' }).success).toBe(false);
   });
 });
 
-describe('setpointRequest schema', () => {
-  it('accepts a temperature in range', () => {
-    expect(setpointRequest.parse({ temperature: 18 })).toEqual({ temperature: 18 });
+describe('requests', () => {
+  it.each([5, 20.5, 30])('accepts setpoint %d', (temperature) => {
+    expect(setpointRequest.safeParse({ temperature }).success).toBe(true);
   });
 
-  it.each([-1, 31])('rejects out-of-range temperature %d', (temperature) => {
+  it.each([4.5, 30.5, 20.25])('rejects setpoint %d', (temperature) => {
     expect(setpointRequest.safeParse({ temperature }).success).toBe(false);
   });
 
-  it('rejects a missing temperature', () => {
-    expect(setpointRequest.safeParse({}).success).toBe(false);
+  it('validates mode', () => {
+    expect(modeRequest.safeParse({ mode: 'off' }).success).toBe(true);
+    expect(modeRequest.safeParse({ mode: 'auto' }).success).toBe(false);
+  });
+
+  it('validates schedules', () => {
+    expect(scheduleRequest.safeParse({ schedule: emptyDays }).success).toBe(true);
+    expect(
+      scheduleRequest.safeParse({
+        schedule: { ...emptyDays, Mon: [{ at: '06:30', targetC: 20 }] },
+      }).success,
+    ).toBe(true);
+    expect(
+      scheduleRequest.safeParse({
+        schedule: { ...emptyDays, Mon: [{ at: '25:00', targetC: 20 }] },
+      }).success,
+    ).toBe(false);
+    expect(
+      scheduleRequest.safeParse({
+        schedule: { ...emptyDays, Mon: [{ at: '06:30', targetC: 31 }] },
+      }).success,
+    ).toBe(false);
+    expect(
+      scheduleRequest.safeParse({
+        schedule: {
+          ...emptyDays,
+          Mon: Array.from({ length: 9 }, (_, i) => ({ at: `0${i}:00`, targetC: 20 })),
+        },
+      }).success,
+    ).toBe(false);
+    expect(scheduleRequest.safeParse({ schedule: { Mon: [] } }).success).toBe(false);
   });
 });
 
-describe('setpointResponse schema', () => {
-  it('accepts a persisted setpoint', () => {
-    const parsed = setpointResponse.parse({
-      deviceId: 'esp32',
-      setpoint: 18,
-      setpointUpdatedAt: '2026-06-03T20:05:00Z',
+describe('history responses', () => {
+  it('accepts readings with extra fields', () => {
+    const parsed = readingsResponse.parse({
+      readings: [{ timestamp: 't', temperature: 20, humidity: 40, eco2: 400, locationId: 'pi' }],
     });
-    expect(parsed.setpoint).toBe(18);
+    expect(parsed.readings[0].temperature).toBe(20);
+  });
+
+  it('accepts boiler events', () => {
+    expect(boilerEvent.parse({ timestamp: 't', state: 'on', source: 'schedule' }).state).toBe('on');
+    expect(boilerEvent.safeParse({ timestamp: 't', state: 'maybe' }).success).toBe(false);
+  });
+});
+
+describe('contract', () => {
+  it('defines every route', () => {
+    expect(Object.keys(contract).sort()).toEqual(
+      ['getBoilerUsage', 'getReadings', 'getState', 'putSchedule', 'setMode', 'setpoint'].sort(),
+    );
   });
 });
