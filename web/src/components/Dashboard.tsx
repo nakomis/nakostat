@@ -26,15 +26,16 @@ function Dashboard() {
   const now = useNow();
 
   const state = useQuery({ ...orpc.getState.queryOptions(), refetchInterval: STATE_POLL_MS });
-  const readings = useQuery({
-    ...orpc.getReadings.queryOptions({ input: { limit: 500 } }),
-    refetchInterval: HISTORY_POLL_MS,
-  });
   // Fetch from the previous whole hour so the query key is stable between renders.
   const usageFrom = useMemo(
     () => new Date(Math.floor((now - 25 * HOUR_MS) / HOUR_MS) * HOUR_MS).toISOString(),
     [now],
   );
+  // A time range, not a row count: 24 h of readings is more than the 500-row default.
+  const readings = useQuery({
+    ...orpc.getReadings.queryOptions({ input: { from: usageFrom } }),
+    refetchInterval: HISTORY_POLL_MS,
+  });
   const usage = useQuery({
     ...orpc.getBoilerUsage.queryOptions({ input: { from: usageFrom } }),
     refetchInterval: HISTORY_POLL_MS,

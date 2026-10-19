@@ -130,10 +130,16 @@ export const contract = {
   setMode: oc.route({ method: 'POST', path: '/mode' }).input(modeRequest).output(ack),
   /** PUT /schedule — replace the weekly schedule. */
   putSchedule: oc.route({ method: 'PUT', path: '/schedule' }).input(scheduleRequest).output(ack),
-  /** GET /readings?limit=N — newest first. */
+  /** GET /readings?limit=N or ?from&to (ISO-8601, up to 2000 rows) — newest first. */
   getReadings: oc
     .route({ method: 'GET', path: '/readings' })
-    .input(z.object({ limit: z.coerce.number().int().min(1).max(500).optional() }))
+    .input(
+      z.object({
+        limit: z.coerce.number().int().min(1).max(2000).optional(),
+        from: z.string().optional(),
+        to: z.string().optional(),
+      }),
+    )
     .output(readingsResponse),
   /** GET /boiler-usage?from&to — newest first. */
   getBoilerUsage: oc
