@@ -41,3 +41,7 @@ infra/coverage/
 .claude
 
 
+
+# CDK lookup cache. Not committed: the Alexa stacks look up SSM parameters that
+# may not exist yet, and a cached placeholder would hide them once set.
+infra/cdk.context.json
