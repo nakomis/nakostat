@@ -1,0 +1,650 @@
+// OTA through Fleet, unsigned. See ota.h.
+#include "ota.h"
+#include "net.h"
+
+#include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/time.h>
+
+#include "cJSON.h"
+#include "esp_app_desc.h"
+#include "esp_heap_caps.h"
+#include "esp_http_client.h"
+#include "esp_log.h"
+#include "esp_ota_ops.h"
+#include "esp_system.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "mbedtls/sha256.h"
+#include "nvs.h"
+
+static const char *TAG = "ota";
+
+extern const char root_ca_start[] asm("_binary_AmazonRootCA1_pem_start");
+
+#define PROJECT "nakostat"
+#define NVS_NAMESPACE "ota"
+#define NVS_TARGET "target"  // the version an install restarted into
+#define NVS_TARGET_SLOT "target_slot"  // and its slot (a reinstall of the same version rolls back too)
+#define READ_CHUNK 4096
+#define HTTP_TIMEOUT_MS 15000
+#define RESTART_DELAY_MS 2000  // for "installing" to reach IoT Core first
+
+typedef enum
+{
+    IDLE,
+    DOWNLOADING,
+    INSTALLING,
+} phase_t;
+
+static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
+static volatile phase_t phase = IDLE;
+static volatile bool cancel;
+static TaskHandle_t task;
+
+// The update being worked on (written by the app task while IDLE, then owned by the OTA task).
+static char *job_url;
+static char job_version[OTA_VERSION_MAX];
+static uint8_t job_sha256[OTA_SHA256_LEN];
+static size_t job_size;  // bytes downloaded, for the re-hash before switching slots
+// SHA-256 of the last update command's URL. IoT Core redelivers the very same bytes; every trigger
+// from Fleet presigns a fresh URL. So the same URL again is a redelivery (or a replay), never a retry.
+static uint8_t last_url_hash[32];
+
+// Limits on how often an update may run (ota.h). Written by the OTA task, read by the app task,
+// both under the lock. Times are esp_timer milliseconds.
+static int64_t retry_after_ms;  // no update starts before this (back-off)
+static uint32_t backoff_s;      // the last back-off; 0 once a download passes every check
+
+static nvs_handle_t nvs;
+static bool nvs_ok;
+static volatile bool on_probation;  // a new image that hasn't yet passed its self-test
+static esp_timer_handle_t verify_deadline;
+
+static const char *running_version(void)
+{
+    return esp_app_get_description()->version;
+}
+
+static int64_t now_ms(void)
+{
+    return esp_timer_get_time() / 1000;
+}
+
+static unsigned seconds_until(int64_t when_ms)
+{
+    return (unsigned)((when_ms - now_ms() + 999) / 1000);
+}
+
+// ---- responses ----------------------------------------------------------------
+
+static void respond(cJSON *msg)
+{
+    char *text = cJSON_PrintUnformatted(msg);
+    if (text != NULL)
+        net_respond(text);
+    cJSON_free(text);
+    cJSON_Delete(msg);
+}
+
+static cJSON *message(const char *type)
+{
+    cJSON *msg = cJSON_CreateObject();
+    cJSON_AddStringToObject(msg, "type", type);
+    return msg;
+}
+
+static void respond_progress(const char *status, int progress, const char *version)
+{
+    cJSON *msg = message("ota_progress");
+    cJSON_AddStringToObject(msg, "status", status);
+    cJSON_AddNumberToObject(msg, "progress", progress);
+    if (version)
+        cJSON_AddStringToObject(msg, "version", version);
+    respond(msg);
+}
+
+static void respond_error(const char *type, const char *text, const char *version)
+{
+    ESP_LOGW(TAG, "%s: %s", type, text);
+    cJSON *msg = message(type);
+    cJSON_AddStringToObject(msg, "message", text);
+    if (version)
+        cJSON_AddStringToObject(msg, "version", version);
+    respond(msg);
+}
+
+static void respond_version(void)
+{
+    cJSON *msg = message("version");
+    cJSON_AddStringToObject(msg, "version", running_version());
+    cJSON_AddStringToObject(msg, "project", PROJECT);
+    respond(msg);
+}
+
+// ---- boot: probation and rollback ------------------------------------------------
+
+static void verify_deadline_fire(void *arg)
+{
+    (void)arg;
+    if (!on_probation)
+        return;
+    ESP_LOGE(TAG, "new image wasn't marked healthy within %d s: rolling back", OTA_VERIFY_DEADLINE_S);
+    esp_ota_mark_app_invalid_rollback_and_reboot();
+    abort();
+}
+
+void ota_boot(void)
+{
+    nvs_ok = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs) == ESP_OK;
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_ota_img_states_t state;
+    bool pending = esp_ota_get_state_partition(running, &state) == ESP_OK && state == ESP_OTA_IMG_PENDING_VERIFY;
+    ESP_LOGI(TAG, "running %s %s from %s%s", PROJECT, running_version(), running->label,
+             pending ? " (new image, on probation)" : "");
+    if (!pending)
+        return;
+    // Kept only once ota_mark_healthy() says so.
+    on_probation = true;
+    const esp_timer_create_args_t args = {.callback = verify_deadline_fire, .name = "ota_verify"};
+    if (esp_timer_create(&args, &verify_deadline) != ESP_OK ||
+        esp_timer_start_once(verify_deadline, (uint64_t)OTA_VERIFY_DEADLINE_S * 1000000) != ESP_OK)
+    {
+        ESP_LOGE(TAG, "no probation timer: rolling back");
+        esp_ota_mark_app_invalid_rollback_and_reboot();
+        abort();
+    }
+}
+
+// The outcome of an install this heatlink made, reported once (and only when Fleet can hear it).
+// ota_on_connected (MQTT task) and ota_mark_healthy (app task) can both get here at once: the first
+// to claim it under the lock reports, the other returns.
+static bool outcome_claimed;
+
+static void report_outcome(void)
+{
+    taskENTER_CRITICAL(&lock);
+    bool first = !outcome_claimed;
+    outcome_claimed = true;
+    taskEXIT_CRITICAL(&lock);
+    if (!first)
+        return;
+    char target[OTA_VERSION_MAX], slot[17] = "";
+    size_t len = sizeof(target), slot_len = sizeof(slot);
+    if (!nvs_ok || nvs_get_str(nvs, NVS_TARGET, target, &len) != ESP_OK)
+        return;
+    // An install that recorded no slot: then the version alone decides.
+    bool slot_known = nvs_get_str(nvs, NVS_TARGET_SLOT, slot, &slot_len) == ESP_OK;
+    if (strcmp(target, running_version()) == 0 &&
+        (!slot_known || strcmp(slot, esp_ota_get_running_partition()->label) == 0))
+    {
+        cJSON *msg = message("ota_complete");
+        cJSON_AddStringToObject(msg, "version", target);
+        respond(msg);
+    }
+    else
+        respond_error("ota_error", "rolled back", target);
+    nvs_erase_key(nvs, NVS_TARGET);
+    nvs_erase_key(nvs, NVS_TARGET_SLOT);
+    nvs_commit(nvs);
+}
+
+void ota_on_connected(void)
+{
+    respond_version();
+    // A new image on probation hasn't proved itself yet: ota_mark_healthy reports it.
+    if (!on_probation)
+        report_outcome();
+}
+
+void ota_mark_healthy(void)
+{
+    taskENTER_CRITICAL(&lock);
+    bool was = on_probation;
+    on_probation = false;
+    taskEXIT_CRITICAL(&lock);
+    if (!was)
+        return;
+    esp_timer_stop(verify_deadline);
+    esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+    ESP_LOGI(TAG, "new image is healthy: kept (%s)", esp_err_to_name(err));
+    if (net_mqtt_connected())
+        report_outcome();
+}
+
+// ---- download and checks ------------------------------------------------------------
+
+// "<what> (tls ... errno ... heap free/largest)": a failure says why itself: the TLS stack's error and certificate-verify
+// flags, the socket's errno, and how much internal RAM there was.
+static const char *explain(esp_http_client_handle_t http, const char *what, char *why, size_t why_len)
+{
+    int tls_code = 0, tls_flags = 0;
+    esp_err_t tls = esp_http_client_get_and_clear_last_tls_error(http, &tls_code, &tls_flags);
+    snprintf(why, why_len, "download failed: %s (tls %s -0x%x flags 0x%x, errno %d, heap %u/%u)", what,
+             esp_err_to_name(tls), (unsigned)-tls_code, (unsigned)tls_flags, esp_http_client_get_errno(http),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+    ESP_LOGE(TAG, "%s", why);
+    return why;
+}
+
+static void log_heap(const char *when)
+{
+    ESP_LOGI(TAG, "%s: heap %u free, largest block %u", when, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+}
+
+// Returns NULL on success, else the reason (for ota_error).
+static const char *download(const esp_partition_t *slot, char *why, size_t why_len)
+{
+    const char *err_text = NULL;
+    int64_t started = now_ms();  // the deadline includes connecting
+    uint8_t *buf = malloc(READ_CHUNK);
+    esp_http_client_config_t config = {
+        .url = job_url,
+        .cert_pem = root_ca_start,
+        .timeout_ms = HTTP_TIMEOUT_MS,
+        .keep_alive_enable = false,
+        // The request line carries the whole presigned URL (~1.5-3 KB with an STS token); the
+        // default 512-byte TX buffer can't hold it, and the request fails with a bare ESP_FAIL.
+        .buffer_size_tx = (int)strlen(job_url) + 1024,
+    };
+    esp_http_client_handle_t http = buf ? esp_http_client_init(&config) : NULL;
+    esp_ota_handle_t ota = 0;
+    mbedtls_sha256_context sha;
+    mbedtls_sha256_init(&sha);
+    if (http == NULL)
+    {
+        err_text = "download failed: out of memory";
+        goto out;
+    }
+    log_heap("before connecting");
+    esp_err_t err = esp_http_client_open(http, 0);
+    if (err != ESP_OK)
+    {
+        err_text = explain(http, esp_err_to_name(err), why, why_len);
+        goto out;
+    }
+    log_heap("connected");
+    int64_t length = esp_http_client_fetch_headers(http);
+    int status = esp_http_client_get_status_code(http);
+    ESP_LOGI(TAG, "HTTP %d, %" PRId64 " bytes", status, length);
+    if (status != 200)
+    {
+        snprintf(why, why_len, "download failed: HTTP %d", status);
+        err_text = why;
+        goto out;
+    }
+    if (length > (int64_t)slot->size)
+    {
+        err_text = "image too large";
+        goto out;
+    }
+    err = esp_ota_begin(slot, OTA_WITH_SEQUENTIAL_WRITES, &ota);
+    if (err != ESP_OK)
+    {
+        snprintf(why, why_len, "download failed: %s", esp_err_to_name(err));
+        err_text = why;
+        ota = 0;
+        goto out;
+    }
+    mbedtls_sha256_starts(&sha, 0);
+    size_t total = 0;
+    int last_tenth = -1;
+    int stalls = 0;
+    // Each read waits at most HTTP_TIMEOUT_MS; these catch a server that trickles bytes instead.
+    int64_t window_start = now_ms();
+    size_t window_total = 0;
+    for (;;)
+    {
+        if (cancel)
+        {
+            err_text = "cancelled";
+            goto out;
+        }
+        int64_t now = now_ms();
+        if (now - started > OTA_DOWNLOAD_DEADLINE_MS)
+        {
+            snprintf(why, why_len, "download failed: over %d s", CONFIG_HEATLINK_OTA_DOWNLOAD_DEADLINE_S);
+            err_text = why;
+            goto out;
+        }
+        if (now - window_start >= OTA_MIN_RATE_WINDOW_MS)
+        {
+            if (total - window_total < OTA_MIN_RATE_BYTES)
+            {
+                snprintf(why, why_len, "download failed: too slow (%u bytes in %d s)",
+                         (unsigned)(total - window_total), OTA_MIN_RATE_WINDOW_MS / 1000);
+                err_text = why;
+                goto out;
+            }
+            window_start = now;
+            window_total = total;
+        }
+        int n = esp_http_client_read(http, (char *)buf, READ_CHUNK);
+        if (n == -ESP_ERR_HTTP_EAGAIN && ++stalls <= 3)
+        {
+            ESP_LOGW(TAG, "read timed out after %u bytes: retrying", (unsigned)total);
+            continue;
+        }
+        if (n < 0)
+        {
+            char what[48];
+            snprintf(what, sizeof(what), "read %d after %u bytes", n, (unsigned)total);
+            err_text = explain(http, what, why, why_len);
+            goto out;
+        }
+        stalls = 0;
+        if (n == 0)
+        {
+            if (!esp_http_client_is_complete_data_received(http))
+            {
+                err_text = "download failed: connection closed early";
+                goto out;
+            }
+            break;
+        }
+        total += (size_t)n;
+        if (total > slot->size)
+        {
+            err_text = "image too large";
+            goto out;
+        }
+        mbedtls_sha256_update(&sha, buf, (size_t)n);
+        err = esp_ota_write(ota, buf, (size_t)n);
+        if (err != ESP_OK)
+        {
+            snprintf(why, why_len, "download failed: %s", esp_err_to_name(err));
+            err_text = why;
+            goto out;
+        }
+        if (length > 0 && (int)(total * 10 / (size_t)length) != last_tenth)
+        {
+            last_tenth = (int)(total * 10 / (size_t)length);
+            respond_progress("downloading", last_tenth * 10, job_version);
+        }
+    }
+    ESP_LOGI(TAG, "downloaded %u bytes", (unsigned)total);
+
+    uint8_t got[OTA_SHA256_LEN];
+    mbedtls_sha256_finish(&sha, got);
+    if (memcmp(got, job_sha256, sizeof(got)) != 0)
+    {
+        err_text = "sha256 mismatch";
+        goto out;
+    }
+    // Checks the image's own integrity (header, checksum). Images are unsigned.
+    err = esp_ota_end(ota);
+    ota = 0;
+    if (err != ESP_OK)
+    {
+        err_text = err == ESP_ERR_OTA_VALIDATE_FAILED ? "image invalid" : "verify failed";
+        goto out;
+    }
+    esp_app_desc_t desc;
+    if (esp_ota_get_partition_description(slot, &desc) != ESP_OK || strcmp(desc.project_name, PROJECT) != 0 ||
+        strcmp(desc.version, job_version) != 0)
+    {
+        err_text = "wrong image";
+        goto out;
+    }
+    if (!ota_version_valid(running_version()))
+        err_text = "running version unknown";  // so no downgrade check is possible
+    else if (ota_version_cmp(job_version, running_version()) < 0)
+        err_text = "downgrade refused";
+    else if (ota_version_cmp(job_version, running_version()) == 0)
+        err_text = "already running";
+    else
+        job_size = total;
+
+out:
+    if (ota)
+        esp_ota_abort(ota);
+    mbedtls_sha256_free(&sha);
+    if (http)
+        esp_http_client_cleanup(http);
+    free(buf);
+    return err_text;
+}
+
+// The job is cleared before the phase goes back to IDLE: from then on the app task (which runs the
+// commands) may start the next one (start_update), which sets job_url itself.
+static void finish(void)
+{
+    char *url = job_url;
+    job_url = NULL;
+    free(url);
+    taskENTER_CRITICAL(&lock);
+    phase = IDLE;
+    cancel = false;
+    taskEXIT_CRITICAL(&lock);
+}
+
+// Hashes the slot's first `size` bytes again: what boots must be what was verified.
+static bool slot_matches(const esp_partition_t *slot, size_t size)
+{
+    uint8_t *buf = malloc(READ_CHUNK);
+    if (buf == NULL)
+        return false;
+    mbedtls_sha256_context sha;
+    mbedtls_sha256_init(&sha);
+    mbedtls_sha256_starts(&sha, 0);
+    bool ok = true;
+    for (size_t off = 0; ok && off < size; off += READ_CHUNK)
+    {
+        size_t n = size - off < READ_CHUNK ? size - off : READ_CHUNK;
+        ok = esp_partition_read(slot, off, buf, n) == ESP_OK;
+        if (ok)
+            mbedtls_sha256_update(&sha, buf, n);
+    }
+    uint8_t got[OTA_SHA256_LEN];
+    mbedtls_sha256_finish(&sha, got);
+    mbedtls_sha256_free(&sha);
+    free(buf);
+    return ok && memcmp(got, job_sha256, sizeof(got)) == 0;
+}
+
+static void ota_task(void *arg)
+{
+    (void)arg;
+    static char why[160];
+    for (;;)
+    {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        const esp_partition_t *slot = esp_ota_get_next_update_partition(NULL);
+        ESP_LOGI(TAG, "update to %s: downloading into %s", job_version, slot ? slot->label : "(none)");
+        const char *failed = slot ? download(slot, why, sizeof(why)) : "no update slot";
+        taskENTER_CRITICAL(&lock);
+        if (failed != NULL)
+        {
+            // Every failure here erased the spare slot, a cancel included: back off.
+            backoff_s = backoff_s == 0 ? OTA_BACKOFF_FIRST_S
+                        : backoff_s >= OTA_BACKOFF_MAX_S / 2 ? OTA_BACKOFF_MAX_S
+                                                              : backoff_s * 2;
+            retry_after_ms = now_ms() + (int64_t)backoff_s * 1000;
+        }
+        else
+            backoff_s = 0;
+        taskEXIT_CRITICAL(&lock);
+        if (failed != NULL)
+        {
+            if (strcmp(failed, "cancelled") == 0)
+                respond_progress("Update cancelled", 0, NULL);
+            else
+                respond_error("ota_error", failed, job_version);
+            finish();
+            continue;
+        }
+
+        taskENTER_CRITICAL(&lock);
+        bool cancelled = cancel;
+        if (!cancelled)
+            phase = INSTALLING;
+        taskEXIT_CRITICAL(&lock);
+        if (cancelled)
+        {
+            respond_progress("Update cancelled", 0, NULL);
+            finish();
+            continue;
+        }
+
+        ESP_LOGI(TAG, "%s verified: installing", job_version);
+        if (!slot_matches(slot, job_size))
+        {
+            respond_error("ota_error", "install failed: slot changed after verification", job_version);
+            finish();
+            continue;
+        }
+        esp_err_t err = nvs_ok ? nvs_set_str(nvs, NVS_TARGET, job_version) : ESP_ERR_INVALID_STATE;
+        if (err == ESP_OK)
+            err = nvs_set_str(nvs, NVS_TARGET_SLOT, slot->label);
+        if (err == ESP_OK)
+            err = nvs_commit(nvs);
+        if (err == ESP_OK)
+            err = esp_ota_set_boot_partition(slot);  // checks the image again
+        if (err != ESP_OK)
+        {
+            if (nvs_ok)
+            {
+                nvs_erase_key(nvs, NVS_TARGET);
+                nvs_erase_key(nvs, NVS_TARGET_SLOT);
+                nvs_commit(nvs);
+            }
+            respond_error("ota_error", "install failed", job_version);
+            finish();
+            continue;
+        }
+        respond_progress("installing", 100, job_version);
+        vTaskDelay(pdMS_TO_TICKS(RESTART_DELAY_MS));
+        ESP_LOGI(TAG, "restarting into %s", job_version);
+        esp_restart();
+    }
+}
+
+// ---- commands (app task) ----------------------------------------------------------------
+
+static void start_update(const ota_cmd *cmd)
+{
+    if (task == NULL && xTaskCreate(ota_task, "ota", 10 * 1024, NULL, 4, &task) != pdPASS)
+    {
+        task = NULL;
+        respond_error("ota_error", "out of memory", cmd->version);
+        return;
+    }
+    char *url = strdup(cmd->url);
+    if (url == NULL)
+    {
+        respond_error("ota_error", "out of memory", cmd->version);
+        return;
+    }
+    // IoT Core redelivers a command whose PUBACK was slow (the MQTT client task is starved while a
+    // download runs), during the update or after it has failed: the same URL again is that, not a
+    // new request.
+    // No reply, on purpose: the redelivery usually lands during the very download it started, and an
+    // ota_error carrying that version would show Fleet the update as failed while it's running. The
+    // first delivery has had its answer; every trigger from Fleet presigns a new URL, so a real retry
+    // never looks like this.
+    uint8_t url_hash[32];
+    mbedtls_sha256((const unsigned char *)url, strlen(url), url_hash, 0);
+    if (memcmp(url_hash, last_url_hash, sizeof(url_hash)) == 0)
+    {
+        ESP_LOGI(TAG, "update to %s with the same URL as the last: a redelivery, ignored", cmd->version);
+        free(url);
+        return;
+    }
+    // Refused before downloading when the answer can only be no: saves erasing the slot.
+    if (ota_version_valid(running_version()) && ota_version_cmp(cmd->version, running_version()) <= 0)
+    {
+        free(url);
+        respond_error("ota_error", ota_version_cmp(cmd->version, running_version()) == 0 ? "already running" : "downgrade refused",
+                      cmd->version);
+        return;
+    }
+    int64_t now = now_ms(), backoff_until = 0;
+    taskENTER_CRITICAL(&lock);
+    bool busy = phase != IDLE;
+    if (!busy && now < retry_after_ms)
+        backoff_until = retry_after_ms;
+    else if (!busy)
+    {
+        phase = DOWNLOADING;
+        cancel = false;
+    }
+    taskEXIT_CRITICAL(&lock);
+    if (busy || backoff_until)
+    {
+        char why[48];
+        if (busy)
+            snprintf(why, sizeof(why), "busy");
+        else
+            snprintf(why, sizeof(why), "busy: retry in %u s", seconds_until(backoff_until));
+        free(url);
+        respond_error("ota_error", why, cmd->version);
+        return;
+    }
+    memcpy(last_url_hash, url_hash, sizeof(last_url_hash));
+    job_url = url;
+    snprintf(job_version, sizeof(job_version), "%s", cmd->version);
+    memcpy(job_sha256, cmd->sha256, sizeof(job_sha256));
+    xTaskNotifyGive(task);
+}
+
+static void cancel_update(void)
+{
+    taskENTER_CRITICAL(&lock);
+    phase_t now = phase;
+    if (now == DOWNLOADING)
+        cancel = true;
+    taskEXIT_CRITICAL(&lock);
+    if (now == INSTALLING)
+        respond_progress("Installing; too late to cancel", 100, NULL);
+    else if (now == IDLE)
+        respond_progress("Update cancelled", 0, NULL);
+}
+
+void ota_handle_command(const char *data, size_t len)
+{
+    static ota_chunks chunks;
+    static ota_cmd cmd;  // 8 KB: not on the app task's stack
+    ota_cmd_parse(&chunks, data, len, (uint32_t)(esp_timer_get_time() / 1000), &cmd);
+    switch (cmd.kind)
+    {
+    case OTA_CMD_GET_VERSION:
+        respond_version();
+        break;
+    case OTA_CMD_PING:
+    {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        cJSON *msg = message("pong");
+        cJSON_AddNumberToObject(msg, "timestamp", (double)tv.tv_sec * 1000 + tv.tv_usec / 1000);
+        respond(msg);
+        break;
+    }
+    case OTA_CMD_CANCEL:
+        cancel_update();
+        break;
+    case OTA_CMD_CHUNK:
+    {
+        char status[48];
+        snprintf(status, sizeof(status), "Chunk %d/%d received", cmd.chunk_index + 1, cmd.total_chunks);
+        respond_progress(status, 0, NULL);  // no version: an ack can't reopen a finished update
+        break;
+    }
+    case OTA_CMD_UPDATE:
+        ESP_LOGI(TAG, "update to %s requested", cmd.version);
+        start_update(&cmd);
+        break;
+    case OTA_CMD_ERROR:
+        respond_error(cmd.ota_error ? "ota_error" : "error", cmd.message, NULL);
+        break;
+    }
+}
+
+bool ota_busy(void)
+{
+    return phase != IDLE;
+}

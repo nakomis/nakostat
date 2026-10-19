@@ -1,0 +1,34 @@
+CONFIG_IDF_TARGET="esp32s3"
+
+# 4 MB flash and our own partition table (two OTA slots), so the image fits the Phase 2 module too.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+CONFIG_PARTITION_TABLE_MD5=y
+
+# No PSRAM (the DevKitC's octal PSRAM stays unused, and GPIO 35-37 with it), and 160 MHz: the S3
+# can miscompute at 240 MHz under heavy dual-core load, and the heatlink needs no more.
+# CONFIG_SPIRAM is not set
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_160=y
+
+# 1 ms ticks: the 20 ms switch poll and short waits are exact.
+CONFIG_FREERTOS_HZ=1000
+
+# Crashes are saved to flash (read with: idf.py coredump-info).
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+
+# OTA: two app slots; a new image that fails its self-test (or crashes before passing it) is rolled
+# back by the bootloader. Images are unsigned for the prototype (Fleet capability "ota"): no
+# signature check, no signing keys. Signed OTA comes with the PCB.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=n
+
+# MQTT: drop an unsent message after 10 s, so a reconnect can't deliver a stale response.
+CONFIG_MQTT_USE_CUSTOM_CONFIG=y
+CONFIG_MQTT_OUTBOX_EXPIRED_TIMEOUT_MS=10000
+
+# MQTT and the OTA download: allocate TLS record buffers only while they're needed.
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y

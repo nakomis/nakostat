@@ -1,0 +1,14 @@
+# Host build (cmake) and its test venv
+build/
+venv/
+.cache/
+
+# ESP-IDF
+esp32s3/build/
+esp32s3/managed_components/
+esp32s3/sdkconfig
+esp32s3/sdkconfig.old
+esp32s3/.cache/
+
+# Per-device credentials from scripts/provision-device.sh: never committed
+esp32s3/certs/
