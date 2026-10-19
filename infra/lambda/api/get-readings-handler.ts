@@ -20,6 +20,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * Either way the response is `{"readings": [...]}`.
  */
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
+  try {
+    return await readings(event);
+  } catch (error) {
+    console.error('Error reading readings:', error);
+    return json(500, { message: 'Internal server error' });
+  }
+};
+
+async function readings(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
   const tableName = process.env.READINGS_TABLE_NAME!;
   const params = event.queryStringParameters ?? {};
   const parsedLimit = params.limit ? parseInt(params.limit, 10) : Number.NaN;
@@ -70,4 +79,4 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
   } while (startKey && readings.length < max);
 
   return json(200, { readings: readings.slice(0, max) });
-};
+}

@@ -53,6 +53,22 @@ describe('SetpointControl', () => {
     expect(onCommit).toHaveBeenCalledWith(19.5);
   });
 
+  it.each([
+    [20.3, 1, 21],
+    [20.3, -1, 20],
+    [20.2, 1, 20.5],
+    [20.7, -1, 20],
+  ])('snaps %s to the 0.5 grid before stepping (%s)', async (from, dir, expected) => {
+    const onCommit = vi.fn();
+    render(<SetpointControl setpoint={from} mode="heat" onCommit={onCommit} />);
+    const name = dir > 0 ? 'Increase setpoint' : 'Decrease setpoint';
+    await userEvent.click(screen.getByRole('button', { name }));
+    act(() => {
+      vi.advanceTimersByTime(SETPOINT_DEBOUNCE_MS);
+    });
+    expect(onCommit).toHaveBeenCalledWith(expected);
+  });
+
   it('clamps at the limits', () => {
     const { rerender } = render(<SetpointControl setpoint={30} mode="heat" onCommit={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Increase setpoint' })).toBeDisabled();

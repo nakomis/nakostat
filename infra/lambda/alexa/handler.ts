@@ -12,16 +12,19 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { IoTDataPlaneClient, PublishCommand } from '@aws-sdk/client-iot-data-plane';
 import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
+import { MAX_SETPOINT_C, MIN_SETPOINT_C, roundToGrid } from '../shared/limits';
 
 const TARGET_REGION = process.env.TARGET_REGION || 'eu-west-2';
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({ region: TARGET_REGION }));
 const iot = new IoTDataPlaneClient({ region: TARGET_REGION });
 
 export const ENDPOINT_ID = 'nakostat-heating';
-export const MIN_C = 5;
-export const MAX_C = 30;
+export const MIN_C = MIN_SETPOINT_C;
+export const MAX_C = MAX_SETPOINT_C;
 /** Pi state older than this means the house is offline. The Pi publishes every 60 s. */
 export const STALE_MS = 5 * 60 * 1000;
+/** The heatlink reports every ~60 s; unseen for longer than this means it is offline. */
+export const HEATLINK_STALE_MS = 3 * 60 * 1000;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,6 +69,10 @@ interface Property {
 export type AlexaResponse = { event: any; context?: { properties: Property[] } };
 
 /** The subset of the daemon's `pi/state` payload this skill reads (spec: Daemon state). */
+interface HeatlinkState {
+  seen?: string;
+}
+
 interface PiState {
   timestamp?: string;
   temperature?: number;
@@ -86,7 +93,7 @@ class AlexaError extends Error {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const roundHalf = (c: number) => Math.round(c * 2) / 2;
+const roundHalf = roundToGrid;
 
 function toCelsius(t: Temperature | undefined): number {
   const v = t?.value;
@@ -99,7 +106,7 @@ function toCelsius(t: Temperature | undefined): number {
     case 'KELVIN':
       return roundHalf(v - 273.15);
     default:
-      return Math.round(v * 10) / 10;
+      return roundHalf(v);
   }
 }
 
@@ -158,11 +165,23 @@ async function userIdFrom(token: string | undefined): Promise<string> {
   }
 }
 
-async function readPiState(): Promise<PiState | undefined> {
+async function readItem<T>(deviceId: string): Promise<T | undefined> {
   const res = await dynamo.send(
-    new GetCommand({ TableName: env('STATE_TABLE_NAME'), Key: { deviceId: 'pi' } }),
+    new GetCommand({ TableName: env('STATE_TABLE_NAME'), Key: { deviceId } }),
   );
-  return res.Item as PiState | undefined;
+  return res.Item as T | undefined;
+}
+
+const readPiState = () => readItem<PiState>('pi');
+
+interface Devices {
+  pi?: PiState;
+  heatlink?: HeatlinkState;
+}
+
+async function readDevices(): Promise<Devices> {
+  const [pi, heatlink] = await Promise.all([readPiState(), readItem<HeatlinkState>('heatlink')]);
+  return { pi, heatlink };
 }
 
 async function publish(topicSuffix: string, body: Record<string, unknown>): Promise<void> {
@@ -176,8 +195,17 @@ async function publish(topicSuffix: string, body: Record<string, unknown>): Prom
   );
 }
 
-const isFresh = (pi: PiState | undefined) =>
-  !!pi?.timestamp && Date.now() - Date.parse(pi.timestamp) < STALE_MS;
+const within = (iso: string | undefined, ms: number) => !!iso && Date.now() - Date.parse(iso) < ms;
+
+/** Reachable means the Pi state is under 5 min old AND the heatlink was seen under 3 min ago. */
+const isReachable = ({ pi, heatlink }: Devices) =>
+  within(pi?.timestamp, STALE_MS) && within(heatlink?.seen, HEATLINK_STALE_MS);
+
+function requireReachable(devices: Devices): void {
+  if (!isReachable(devices)) {
+    throw new AlexaError('ENDPOINT_UNREACHABLE', 'The thermostat is not responding');
+  }
+}
 
 const sample = (namespace: string, name: string, value: unknown, time: string): Property => ({
   namespace,
@@ -192,9 +220,10 @@ const sample = (namespace: string, name: string, value: unknown, time: string): 
  * request has just asked for) reported as sampled now.
  */
 function properties(
-  pi: PiState | undefined,
+  devices: Devices,
   overrides: { setpoint?: number; mode?: 'heat' | 'off' } = {},
 ): Property[] {
+  const { pi } = devices;
   const now = new Date().toISOString();
   const piTime = pi?.timestamp ?? now;
   const props: Property[] = [];
@@ -234,7 +263,7 @@ function properties(
     sample(
       'Alexa.EndpointHealth',
       'connectivity',
-      { value: isFresh(pi) ? 'OK' : 'UNREACHABLE' },
+      { value: isReachable(devices) ? 'OK' : 'UNREACHABLE' },
       now,
     ),
   );
@@ -356,28 +385,32 @@ async function setTargetTemperature(d: AlexaEvent['directive'], userId: string) 
   }
   const celsius = toCelsius(p.targetSetpoint);
   if (celsius < MIN_C || celsius > MAX_C) throw outOfRange();
+  const devices = await readDevices();
+  requireReachable(devices);
   await publish('setpoint', {
     temperature: celsius,
     timestamp: new Date().toISOString(),
     userId,
   });
-  const pi = await readPiState().catch(() => undefined);
-  return respond(d, 'Response', properties(pi, { setpoint: celsius }));
+  return respond(d, 'Response', properties(devices, { setpoint: celsius }));
 }
 
 async function adjustTargetTemperature(d: AlexaEvent['directive'], userId: string) {
   const delta = deltaToCelsius(d.payload?.targetSetpointDelta);
-  const pi = await readPiState();
+  const devices = await readDevices();
+  requireReachable(devices);
+  const pi = devices.pi;
   if (typeof pi?.setpoint !== 'number') {
     throw new AlexaError('ENDPOINT_UNREACHABLE', 'Current setpoint unknown');
   }
-  const celsius = Math.min(MAX_C, Math.max(MIN_C, roundHalf(pi.setpoint + delta)));
+  const celsius = roundHalf(pi.setpoint + delta);
+  if (celsius < MIN_C || celsius > MAX_C) throw outOfRange();
   await publish('setpoint', {
     temperature: celsius,
     timestamp: new Date().toISOString(),
     userId,
   });
-  return respond(d, 'Response', properties(pi, { setpoint: celsius }));
+  return respond(d, 'Response', properties(devices, { setpoint: celsius }));
 }
 
 async function setThermostatMode(d: AlexaEvent['directive'], userId: string) {
@@ -390,15 +423,16 @@ async function setThermostatMode(d: AlexaEvent['directive'], userId: string) {
     );
   }
   const mode = requested === 'HEAT' ? 'heat' : 'off';
+  const devices = await readDevices();
+  requireReachable(devices);
   await publish('mode', { mode, timestamp: new Date().toISOString(), userId });
-  const pi = await readPiState().catch(() => undefined);
-  return respond(d, 'Response', properties(pi, { mode }));
+  return respond(d, 'Response', properties(devices, { mode }));
 }
 
 async function reportState(d: AlexaEvent['directive']) {
-  const pi = await readPiState();
-  if (!pi) throw new AlexaError('ENDPOINT_UNREACHABLE', 'No state from the thermostat yet');
-  return respond(d, 'StateReport', properties(pi));
+  const devices = await readDevices();
+  if (!devices.pi) throw new AlexaError('ENDPOINT_UNREACHABLE', 'No state from the thermostat yet');
+  return respond(d, 'StateReport', properties(devices));
 }
 
 // ── Entry point ──────────────────────────────────────────────────────────────

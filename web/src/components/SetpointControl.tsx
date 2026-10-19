@@ -44,7 +44,9 @@ function SetpointControl({
   const shown = draft ?? setpoint;
   const off = mode === 'off';
   const step = (delta: number) => {
-    const next = Math.min(MAX_SETPOINT, Math.max(MIN_SETPOINT, (draft ?? setpoint) + delta));
+    // Snap to the 0.5 grid first, so an off-grid value (e.g. 20.3 from Alexa) steps to 20.5 or 20.0.
+    const base = Math.round((draft ?? setpoint) / SETPOINT_STEP) * SETPOINT_STEP;
+    const next = Math.min(MAX_SETPOINT, Math.max(MIN_SETPOINT, base + delta));
     setDraft(next);
   };
 

@@ -69,6 +69,18 @@ describe('validateSchedule', () => {
     ['12:60', { ...week(), Thu: [{ at: '12:60', targetC: 18 }] }, 'HH:MM'],
     ['a numeric time', { ...week(), Thu: [{ at: 700, targetC: 18 }] }, 'HH:MM'],
     ['4.5 °C', { ...week(), Fri: [{ at: '07:00', targetC: 4.5 }] }, '5 and 30'],
+    ['a target off the 0.5 grid', { ...week(), Fri: [{ at: '07:00', targetC: 20.3 }] }, '0.5'],
+    [
+      'duplicate times in a day',
+      {
+        ...week(),
+        Fri: [
+          { at: '07:00', targetC: 20 },
+          { at: '07:00', targetC: 18 },
+        ],
+      },
+      'duplicate',
+    ],
     ['31 °C', { ...week(), Fri: [{ at: '07:00', targetC: 31 }] }, '5 and 30'],
     ['a string target', { ...week(), Fri: [{ at: '07:00', targetC: '20' }] }, '5 and 30'],
   ])('rejects %s', (_label, schedule, message) => {

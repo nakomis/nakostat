@@ -1,4 +1,5 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import { isOnGrid, SETPOINT_STEP_C } from '../shared/limits';
 import {
   badRequest,
   isValidTemperature,
@@ -25,7 +26,7 @@ const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /**
  * Checks a week schedule in the daemon's format, `{"Mon": [{"at": "07:00", "targetC": 20}], …}`:
- * all seven days and no others, at most eight entries a day, times "HH:MM", targets 5–30 °C.
+ * all seven days and no others, at most eight entries a day, times "HH:MM" and unique within a day, targets 5–30 °C in 0.5 °C steps.
  * Returns it with only `at` and `targetC` kept on each entry.
  */
 export function validateSchedule(
@@ -60,6 +61,15 @@ export function validateSchedule(
           ok: false,
           error: `${day}[${i}].targetC must be between ${MIN_SETPOINT_C} and ${MAX_SETPOINT_C}°C`,
         };
+      }
+      if (!isOnGrid(targetC)) {
+        return {
+          ok: false,
+          error: `${day}[${i}].targetC must be a multiple of ${SETPOINT_STEP_C}°C`,
+        };
+      }
+      if (schedule[day].some((e) => e.at === at)) {
+        return { ok: false, error: `${day}[${i}].at duplicates another entry at ${at}` };
       }
       schedule[day].push({ at, targetC });
     }

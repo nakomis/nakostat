@@ -79,6 +79,11 @@ export class AlexaAuthStack extends cdk.Stack {
       // Alexa refreshes hourly, but Cognito doesn't rotate refresh tokens, so
       // the link would silently break when the first refresh token expires.
       // Keep it for the maximum (10 years).
+      // Trade-off: a leaked refresh token stays usable for years, so see "Revoking
+      // Alexa.s access" in docs/alexa-setup.md. Refresh-token rotation
+      // (CfnUserPoolClient refreshTokenRotation) is available in this CDK version but
+      // deliberately left off: we have not confirmed Alexa stores a rotated token
+      // returned from a refresh, and a mismatch would silently break the link.
       refreshTokenValidity: cdk.Duration.days(3650),
       enableTokenRevocation: true,
       preventUserExistenceErrors: true,

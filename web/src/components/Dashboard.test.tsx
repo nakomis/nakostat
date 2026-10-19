@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import Dashboard, { REFETCH_AFTER_WRITE_MS } from './Dashboard';
+import Dashboard, { PENDING_TIMEOUT_MS, REFETCH_AFTER_WRITE_MS } from './Dashboard';
 
 const fns = vi.hoisted(() => ({
   getState: vi.fn(),
@@ -145,5 +145,61 @@ describe('Dashboard', () => {
     await userEvent.click(screen.getByRole('button', { name: /Off/ }));
     expect(await screen.findByText(/Could not send that change: HTTP 403/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Heat/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('Dashboard pending values', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fns.getReadings.mockResolvedValue({ readings: [] });
+    fns.getBoilerUsage.mockResolvedValue([]);
+    fns.setpoint.mockResolvedValue({});
+  });
+
+  it('keeps the pending setpoint until /state agrees, refetching every 3 s', async () => {
+    fns.getState.mockResolvedValueOnce(stateBody());
+    // The daemon is slow: two stale answers, then agreement.
+    fns.getState.mockResolvedValueOnce(stateBody());
+    fns.getState.mockResolvedValueOnce(stateBody());
+    fns.getState.mockResolvedValue(stateBody({ setpoint: 20.5 }));
+    renderDashboard();
+    await screen.findByText('19.5');
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await userEvent.click(screen.getByRole('button', { name: 'Increase setpoint' }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000 + 50); // debounce
+      });
+      expect(fns.setpoint).toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(REFETCH_AFTER_WRITE_MS + 50);
+      });
+      // First refetch still shows the old value: the pending 20.5 must not flash back to 20.0.
+      expect(screen.getByLabelText('Target temperature')).toHaveTextContent('20.5°');
+      expect(screen.getByText('Waiting for the thermostat…')).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2 * REFETCH_AFTER_WRITE_MS + 50);
+      });
+      expect(screen.getByLabelText('Target temperature')).toHaveTextContent('20.5°');
+      expect(screen.queryByText('Waiting for the thermostat…')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives up on a pending setpoint after the timeout', async () => {
+    fns.getState.mockResolvedValue(stateBody());
+    renderDashboard();
+    await screen.findByText('19.5');
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await userEvent.click(screen.getByRole('button', { name: 'Increase setpoint' }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000 + PENDING_TIMEOUT_MS + 3 * REFETCH_AFTER_WRITE_MS);
+      });
+      expect(screen.getByLabelText('Target temperature')).toHaveTextContent('20.0°');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
