@@ -12,9 +12,13 @@ import { useNow } from '@/hooks/useNow';
 
 /** The daemon applies changes asynchronously; refetch this long after a write. */
 export const REFETCH_AFTER_WRITE_MS = 3000;
+/** Keep a pending value until /state agrees with it, but no longer than this. */
+export const PENDING_TIMEOUT_MS = 20_000;
 const STATE_POLL_MS = 30_000;
 const HISTORY_POLL_MS = 5 * 60_000;
 const HOUR_MS = 3600_000;
+
+type StateData = { pi?: { setpoint?: number; mode?: string } | null } | undefined;
 
 interface Pending {
   setpoint?: number;
@@ -42,36 +46,43 @@ function Dashboard() {
   });
 
   const [pending, setPending] = useState<Pending>({});
-  const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const timers = useRef<Map<keyof Pending, ReturnType<typeof setInterval>>>(new Map());
   useEffect(() => {
     const t = timers.current;
     return () => {
-      for (const id of t) clearTimeout(id);
+      for (const id of t.values()) clearInterval(id);
     };
   }, []);
 
   const { refetch } = state;
   const settle = useCallback(
-    (key: keyof Pending) => {
-      const id = setTimeout(async () => {
-        timers.current.delete(id);
-        await refetch();
+    (key: keyof Pending, agrees: (s: StateData | undefined) => boolean) => {
+      const running = timers.current.get(key);
+      if (running) clearInterval(running);
+      const started = Date.now();
+      const stop = () => {
+        clearInterval(id);
+        if (timers.current.get(key) === id) timers.current.delete(key);
         setPending((p) => ({ ...p, [key]: undefined }));
+      };
+      const id = setInterval(async () => {
+        const { data } = await refetch();
+        if (agrees(data) || Date.now() - started >= PENDING_TIMEOUT_MS) stop();
       }, REFETCH_AFTER_WRITE_MS);
-      timers.current.add(id);
+      timers.current.set(key, id);
     },
     [refetch],
   );
 
   const setpointMutation = useMutation(
     orpc.setpoint.mutationOptions({
-      onSuccess: () => settle('setpoint'),
+      onSuccess: (_d, v) => settle('setpoint', (s) => s?.pi?.setpoint === v.temperature),
       onError: () => setPending((p) => ({ ...p, setpoint: undefined })),
     }),
   );
   const modeMutation = useMutation(
     orpc.setMode.mutationOptions({
-      onSuccess: () => settle('mode'),
+      onSuccess: (_d, v) => settle('mode', (s) => s?.pi?.mode === v.mode),
       onError: () => setPending((p) => ({ ...p, mode: undefined })),
     }),
   );

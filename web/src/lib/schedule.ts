@@ -64,7 +64,7 @@ export function hasErrors(errors: Record<Day, DayErrors>): boolean {
   return DAYS.some((d) => errors[d].day || Object.keys(errors[d].entries).length > 0);
 }
 
-/** Default new transition: 30 minutes after the last one, same target. */
+/** Default new transition: an hour after the last one, same target. */
 export function nextEntry(entries: ScheduleEntry[]): ScheduleEntry {
   const last = sortEntries(entries).at(-1);
   if (!last) return { at: '07:00', targetC: 20 };
