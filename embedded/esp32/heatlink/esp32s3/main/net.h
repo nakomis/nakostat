@@ -16,12 +16,18 @@ typedef void (*net_command_cb)(const char *json, size_t len);
 // the life of the program. On any setup failure it logs and gives up (false).
 bool net_start(const prov_t *prov, net_command_cb on_command);
 
-// Publishes on nakostat/<thing>/responses at QoS 1. Queued for the MQTT task; false (and
-// dropped) if not connected.
+// Publishes on nakostat/<thing>/responses at QoS 1. Copied into a queue for the network's tx task,
+// so it never blocks: false (and dropped) if not connected, out of memory or the queue is full.
+// Any task may call it.
 bool net_respond(const char *json);
 
 // Publishes on nakostat/<thing>/status at QoS 1, not retained. Same queueing as net_respond.
+// Called only from the app task.
 bool net_publish_status(const char *json);
+
+// Whether IoT Core has acknowledged (PUBACK) the latest status queued by net_publish_status. QoS 1
+// acknowledgements arrive in order, so this covers every earlier status too. True before the first.
+bool net_status_acked(void);
 
 // Whether the MQTT connection to IoT Core is up.
 bool net_mqtt_connected(void);

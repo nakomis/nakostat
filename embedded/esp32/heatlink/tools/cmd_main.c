@@ -1,15 +1,19 @@
 // hl-cmd: run the heatlink's own command parser (port/hl_cmd.c) from the command line.
 //
-//   hl-cmd   one JSON command per line on stdin; one JSON result line each:
+//   hl-cmd [--now <epoch_s>]
+//            one JSON command per line on stdin; one JSON result line each:
 //            {"kind":"get_status"|"reboot"|"fleet"}
-//            {"kind":"demand","on":..,"source":..,"ttl_s":..,"setpoint":<centi>|null,"temperature":<centi>|null}
-//            {"kind":"set_schedule","tz":..,"comfort":<centi>,"duty":..,"days":[[[minute,centi],..],..]}
+//            {"kind":"demand","on":..,"source":..,"ttl_s":..,"setpoint":<centi>|null,"temperature":<centi>|null,
+//             "ts":<s>|null}  plus "too_old":bool (hl_demand_too_old against <epoch_s>) with --now
+//            {"kind":"set_schedule","tz":..,"comfort":<centi>,"duty":..,"enabled":..,"days":[[[minute,centi],..],..]}
 //            {"kind":"error","message":..}
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cJSON.h"
 #include "hl_cmd.h"
+#include "hl_time.h"
 
 static const char *kind_name(hl_cmd_kind kind)
 {
@@ -39,8 +43,10 @@ static void add_opt(cJSON *out, const char *name, bool has, int value)
         cJSON_AddNullToObject(out, name);
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
+    bool have_now = argc == 3 && strcmp(argv[1], "--now") == 0;
+    long long now = have_now ? atoll(argv[2]) : 0;
     static char line[64 * 1024];
     static hl_cmd cmd;
     while (fgets(line, sizeof(line), stdin) != NULL)
@@ -56,6 +62,13 @@ int main(void)
             cJSON_AddNumberToObject(out, "ttl_s", cmd.ttl_s);
             add_opt(out, "setpoint", cmd.has_setpoint, cmd.setpoint_centi);
             add_opt(out, "temperature", cmd.has_temperature, cmd.temperature_centi);
+            if (cmd.has_ts)
+                cJSON_AddNumberToObject(out, "ts", (double)cmd.ts);
+            else
+                cJSON_AddNullToObject(out, "ts");
+            if (have_now)
+                cJSON_AddBoolToObject(out, "too_old",
+                                      hl_demand_too_old(cmd.has_ts, cmd.ts, hl_time_valid(now), now));
         }
         else if (cmd.kind == HL_CMD_SET_SCHEDULE)
         {
@@ -63,6 +76,7 @@ int main(void)
             cJSON_AddStringToObject(out, "tz", s->tz);
             cJSON_AddNumberToObject(out, "comfort", s->comfort_centi);
             cJSON_AddNumberToObject(out, "duty", s->duty_pct);
+            cJSON_AddBoolToObject(out, "enabled", s->enabled);
             cJSON_AddBoolToObject(out, "valid", hl_schedule_valid(s));
             cJSON *days = cJSON_AddArrayToObject(out, "days");
             for (int d = 0; d < HL_DAYS; d++)

@@ -9,7 +9,8 @@
 //
 // Fallback: heat while the target in force is at least comfort, on a duty cycle of duty_pct of
 // each clock hour (67% = minutes 0-39 on, 40-59 off). There is no room temperature at the boiler,
-// so it behaves like an old timer-only programmer.
+// so it behaves like an old timer-only programmer. While the schedule is disabled (set_schedule
+// "enabled":false, sent while the daemon's mode is off) the fallback never heats.
 #pragma once
 
 #include <stdbool.h>
@@ -43,6 +44,7 @@ typedef struct
     hl_entry entry[HL_DAYS][HL_MAX_ENTRIES];  // each day's sorted by minute, no duplicates
     int16_t comfort_centi;
     uint8_t duty_pct;  // 0..100
+    bool enabled;      // false while the daemon's mode is off: the fallback keeps the relay off
     char tz[HL_TZ_MAX];  // a POSIX TZ string, NUL-terminated
 } hl_schedule;
 
@@ -53,7 +55,7 @@ typedef struct
     uint16_t minute;  // of the day, 0..1439
 } hl_local;
 
-// An empty schedule with the defaults (comfort, duty, Europe/London).
+// An empty schedule with the defaults (comfort, duty, enabled, Europe/London).
 void hl_schedule_init(hl_schedule *s);
 
 // Whether a schedule read back from storage is well formed (counts, order, ranges, tz terminated).
@@ -65,6 +67,6 @@ bool hl_schedule_target(const hl_schedule *s, hl_local now, int16_t *target_cent
 // Minutes of each hour the fallback heats: duty_pct of 60, to the nearest minute.
 int hl_duty_minutes(uint8_t duty_pct);
 
-// Whether the fallback heats at `now`: the target in force is at least comfort, and the minute of
-// the hour is inside the duty cycle.
+// Whether the fallback heats at `now`: the schedule is enabled, the target in force is at least
+// comfort, and the minute of the hour is inside the duty cycle.
 bool hl_fallback_heat(const hl_schedule *s, hl_local now);

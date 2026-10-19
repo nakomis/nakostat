@@ -32,3 +32,13 @@ CONFIG_MQTT_OUTBOX_EXPIRED_TIMEOUT_MS=10000
 # MQTT and the OTA download: allocate TLS record buffers only while they're needed.
 CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
 CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+
+# Task watchdog: the app task (which drives the relay) subscribes itself; if it stops resetting the
+# watchdog for 5 s the heatlink panics and restarts, and a restart leaves the relay off. A new image
+# on probation that hangs is therefore rolled back too. The idle tasks stay watched, as by default.
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=y

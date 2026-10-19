@@ -1,14 +1,17 @@
 // The heatlink's own commands, as they arrive on nakostat/<thing>/commands:
 //
 //   {"command":"demand","on":true,"source":"schedule"|"override"|"frost"|"off",
-//    "setpoint":20.5,"temperature":19.8,"ttl_s":300}
+//    "setpoint":20.5,"temperature":19.8,"ttl_s":300,"ts":1760000000}
 //       on is required. source defaults to "override" (a hand-sent demand); ttl_s defaults to 300
-//       and is clamped to 60..1800; setpoint and temperature are optional and informational.
-//   {"command":"set_schedule","tz":"GMT0BST,M3.5.0/1,M10.5.0","comfort_c":18.0,"duty_pct":67,
-//    "days":[[[360,20.0],[540,16.0]], ... seven days, Monday first]}
+//       and is clamped to 60..1800; setpoint and temperature are optional and informational. ts,
+//       optional, is the daemon's Unix time in seconds when it sent the demand (see
+//       hl_demand_too_old in heatlink.h).
+//   {"command":"set_schedule","enabled":true,"tz":"GMT0BST,M3.5.0/1,M10.5.0","comfort_c":18.0,
+//    "duty_pct":67,"days":[[[360,20.0],[540,16.0]], ... seven days, Monday first]}
 //       days is required: exactly seven arrays of at most 8 [minute_of_day, target_c] pairs, the
 //       minute a whole number 0..1439. Targets are clamped to 0..30 degC, comfort_c (default 18)
-//       to 5..30, duty_pct (default 67) to 0..100 and rounded; tz defaults to Europe/London.
+//       to 5..30, duty_pct (default 67) to 0..100 and rounded; tz defaults to Europe/London;
+//       enabled (default true) is false while the daemon's mode is off.
 //       Entries are sorted; two at the same minute keep the later one, as the daemon does.
 //   {"command":"get_status"} | {"command":"reboot"}
 //
@@ -45,6 +48,8 @@ typedef struct
     uint32_t ttl_s;
     bool has_setpoint, has_temperature;
     int16_t setpoint_centi, temperature_centi;
+    bool has_ts;
+    int64_t ts;  // Unix seconds, when has_ts
     // set_schedule
     hl_schedule schedule;
     char message[96];

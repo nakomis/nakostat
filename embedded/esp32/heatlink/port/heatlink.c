@@ -30,6 +30,11 @@ hl_output hl_decide(const hl_inputs *in)
     return out(HL_MODE_FALLBACK, heat, HL_SRC_FALLBACK);
 }
 
+bool hl_demand_too_old(bool has_ts, int64_t ts_s, bool time_valid, int64_t now_s)
+{
+    return has_ts && time_valid && now_s - ts_s > HL_DEMAND_MAX_AGE_S;
+}
+
 uint32_t hl_ttl_clamp(double ttl_s)
 {
     if (isnan(ttl_s))

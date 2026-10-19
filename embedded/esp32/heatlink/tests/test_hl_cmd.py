@@ -76,7 +76,7 @@ def test_demand_as_the_daemon_sends_it(cmd):
     out = cmd({"command": "demand", "on": True, "source": "schedule", "setpoint": 20.5,
                "temperature": 19.8, "ttl_s": 300})
     assert out == {"kind": "demand", "on": True, "source": "schedule", "ttl_s": 300, "setpoint": 2050,
-                   "temperature": 1980}
+                   "temperature": 1980, "ts": None}
 
 
 @pytest.mark.parametrize("source", ["schedule", "override", "frost", "off"])
@@ -86,7 +86,8 @@ def test_demand_sources(cmd, source):
 
 def test_demand_defaults(cmd):
     assert cmd({"command": "demand", "on": False}) == {
-        "kind": "demand", "on": False, "source": "override", "ttl_s": 300, "setpoint": None, "temperature": None}
+        "kind": "demand", "on": False, "source": "override", "ttl_s": 300, "setpoint": None, "temperature": None,
+        "ts": None}
 
 
 @pytest.mark.parametrize("ttl,clamped", [(0, 60), (-5, 60), (59.9, 60), (60, 60), (61.7, 61), (1800, 1800),
@@ -125,6 +126,56 @@ def test_demand_readings_may_be_null(cmd):
     assert out["setpoint"] is None and out["temperature"] == -235
 
 
+# ---- demand ts: a demand replayed from a queue after an outage is ignored ----------------------
+
+NOW = 1_760_000_000  # a valid wall clock (after 2025)
+
+
+def test_demand_ts_is_parsed(cmd):
+    assert cmd({"command": "demand", "on": True, "ts": NOW})["ts"] == NOW
+
+
+def test_demand_ts_may_be_null(cmd):
+    assert cmd({"command": "demand", "on": True, "ts": None})["ts"] is None
+
+
+@pytest.mark.parametrize("ts", ['"1760000000"', "true", "1e400", "[]"])
+def test_demand_refuses_a_bad_ts(cmd, ts):
+    assert err(cmd, '{"command":"demand","on":true,"ts":' + ts + "}") == "ts must be a number of seconds"
+
+
+@pytest.fixture
+def too_old(tool):
+    def go(now, **demand):
+        c = {"command": "demand", "on": True, **demand}
+        (out,) = [json.loads(line) for line in tool("hl-cmd", "--now", str(now))(json.dumps(c) + "\n").splitlines()]
+        assert out["kind"] == "demand", out
+        return out["too_old"]
+
+    return go
+
+
+@pytest.mark.parametrize("age,old", [(0, False), (30, False), (60, False), (61, True), (3600, True)])
+def test_a_demand_older_than_60_s_is_too_old(too_old, age, old):
+    assert too_old(NOW, ts=NOW - age) is old
+
+
+@pytest.mark.parametrize("ahead", [1, 61, 3600])
+def test_a_demand_from_the_future_is_accepted(too_old, ahead):
+    # Clock skew between the Pi and the heatlink: be lenient, only ignore what is old.
+    assert too_old(NOW, ts=NOW + ahead) is False
+
+
+def test_a_demand_without_ts_is_never_too_old(too_old):
+    assert too_old(NOW) is False
+
+
+def test_ts_is_ignored_while_the_heatlink_clock_is_unset(too_old):
+    # Before SNTP the S3's clock reads 1970: a ts can't be judged against it.
+    assert too_old(1000, ts=10) is False
+    assert too_old(1000, ts=NOW) is False
+
+
 # ---- set_schedule ---------------------------------------------------------------------------
 
 WEEK = [[[360, 20.0], [540, 16.0], [1020, 20.5], [1320, 15.0]]] * 5 + [[[480, 21.0], [1380, 15.0]]] * 2
@@ -142,7 +193,18 @@ def test_set_schedule_as_the_daemon_sends_it(cmd):
 def test_set_schedule_defaults(cmd):
     out = cmd(schedule())
     assert out == {"kind": "set_schedule", "tz": "GMT0BST,M3.5.0/1,M10.5.0", "comfort": 1800, "duty": 67,
-                   "valid": True, "days": [[]] * 7}
+                   "enabled": True, "valid": True, "days": [[]] * 7}
+
+
+def test_set_schedule_enabled(cmd):
+    assert cmd(schedule(enabled=False))["enabled"] is False
+    assert cmd(schedule(enabled=True))["enabled"] is True
+
+
+@pytest.mark.parametrize("enabled", ['"false"', "0", "1", "null"])
+def test_set_schedule_refuses_a_bad_enabled(cmd, enabled):
+    c = '{"command":"set_schedule","enabled":' + enabled + ',"days":[[],[],[],[],[],[],[]]}'
+    assert err(cmd, c) == "enabled must be true or false"
 
 
 def test_entries_are_sorted(cmd):

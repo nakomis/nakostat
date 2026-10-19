@@ -142,3 +142,24 @@ def test_stale_demand_on_does_not_keep_the_boiler_on(decide):
     # The daemon said "on" ten minutes ago and went quiet; at 23:00 the schedule says no.
     assert decide(demand=demand(on=True, age_ms=600_000), schedule=SCHED, time_valid=True,
                   local=MON_2300) == ("fallback", False, "fallback")
+
+
+# ---- set_schedule enabled=false: the daemon's mode is off --------------------------------------
+
+OFF_SCHED = dict(SCHED, enabled=False)
+
+
+@pytest.mark.parametrize("local", [MON_0700, MON_0745, MON_2300])
+def test_a_disabled_schedule_keeps_the_fallback_off(decide, local):
+    assert decide(schedule=OFF_SCHED, time_valid=True, local=local) == ("fallback", False, "fallback")
+
+
+def test_a_disabled_schedule_still_follows_a_fresh_demand(decide):
+    # The daemon's frost demand still reaches the boiler while its mode is off.
+    assert decide(demand=demand(on=True, source="frost"), schedule=OFF_SCHED, time_valid=True,
+                  local=MON_0700) == ("auto", True, "frost")
+
+
+def test_a_disabled_schedule_does_not_stop_the_switch(decide):
+    assert decide(switch="on", schedule=OFF_SCHED, time_valid=True, local=MON_0700) == (
+        "force_on", True, "switch")
