@@ -43,7 +43,14 @@ pins), 19 and 20 (USB), 35–37 (the N16R8's octal PSRAM) and 43–44 (UART0).
 1. Wire the DevKitC, relay module and switch as above. On the relay contacts: **COM** goes to 3.3 V
    through 330 Ω, and **NO** goes to the LED anode, LED cathode to GND.
 2. Flash and provision (see `embedded/esp32/heatlink/README.md`).
-3. With the switch in each position, check the LED colour and the relay:
+3. **Check the relay really drops out.** With the switch **down** (forced off), measure the voltage
+   on the relay module's IN pin and confirm the relay has clicked off and the module's indicator LED
+   is fully dark. With an active-low module powered from 5 V, the released (open-drain) pin is pulled
+   above the ESP32's 3.3 V rail. On some opto modules the current that leaks into the ESP32 keeps the
+   opto partly lit, so the relay chatters or stays held. If it doesn't drop out cleanly, power the
+   module's logic (VCC, or JD-VCC's logic side) from **3.3 V**, or drive IN through an NPN transistor
+   or level shifter. Don't start the live trial until this passes.
+4. With the switch in each position, check the LED colour and the relay:
 
 | Check | Expect |
 |---|---|

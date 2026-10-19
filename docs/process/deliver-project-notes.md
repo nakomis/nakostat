@@ -65,6 +65,20 @@ what only Martin can do, small environment gaps, and the technical calls you've 
 - Model choice: inherit (Opus) for firmware/daemon/infra/Alexa; Sonnet for web, Pish widget.
 - Lead does the cross-cutting docs (wiring guide, CI) in its own worktree while agents run.
 
+## Phase 5: integrate and review
+
+- Merge workstream PRs into the epic branch as they land (the epic PR to `main` is Martin's gate);
+  run the combined test suites after merging overlapping areas (infra + Alexa both touched infra/).
+- Two reviewers with *different focuses* beat one reviewer on a 14k-line diff: (1) safety-critical
+  control path + cross-component contracts, (2) user-facing surfaces (API, web, Alexa). Ask each to
+  trace messages end to end and to list what it "declined to judge".
+- Reviews found real cross-cutting bugs no single workstream could see: "mode off" not reaching the
+  heatlink's fallback; demands replayed after an MQTT outage; no watchdog on the relay task. Budget
+  for a fix round; amend the spec first when a fix changes a contract, then fan the fixes out again.
+- Check reviewer severity against facts before acting (e.g. "any pool user can control the heating"
+  was moot: the shared Cognito pool has self sign-up disabled), and record the downgrade.
+- Hardware findings become steps in the bench-test procedure, not code (e.g. measure the relay IN pin).
+
 ## Gotchas met
 
 - `.tool-versions` may pin a patch version that isn't installed; `ASDF_PYTHON_VERSION=<installed>`
