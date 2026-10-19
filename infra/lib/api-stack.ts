@@ -71,22 +71,29 @@ export class ApiStack extends cdk.Stack {
     });
     readingsTable.grantReadData(getReadingsHandler);
 
-    const setpointHandler = new nodejs.NodejsFunction(this, 'SetpointHandler', {
-      entry: path.join(__dirname, '../lambda/api/setpoint-handler.ts'),
-      handler: 'handler',
-      runtime: lambda.Runtime.NODEJS_22_X,
-      environment: { STATE_TABLE_NAME: stateTable.tableName, DEPLOY_ENV: deployEnv },
-      bundling: { externalModules: [] },
-    });
-    stateTable.grantWriteData(setpointHandler);
-    setpointHandler.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ['iot:Publish'],
-        resources: [
-          `arn:aws:iot:${this.region}:${this.account}:topic/nakostat/${deployEnv}/api/setpoint`,
-        ],
-      }),
-    );
+    // Control requests are published for the Pi daemon, the authority on what the heating does;
+    // each handler may publish to its own api/* topic only.
+    const controlHandler = (id: string, entry: string, name: string) => {
+      const fn = new nodejs.NodejsFunction(this, id, {
+        entry: path.join(__dirname, `../lambda/api/${entry}`),
+        handler: 'handler',
+        runtime: lambda.Runtime.NODEJS_22_X,
+        environment: { DEPLOY_ENV: deployEnv },
+        bundling: { externalModules: [] },
+      });
+      fn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['iot:Publish'],
+          resources: [
+            `arn:aws:iot:${this.region}:${this.account}:topic/nakostat/${deployEnv}/api/${name}`,
+          ],
+        }),
+      );
+      return fn;
+    };
+    const setpointHandler = controlHandler('SetpointHandler', 'setpoint-handler.ts', 'setpoint');
+    const modeHandler = controlHandler('ModeHandler', 'mode-handler.ts', 'mode');
+    const scheduleHandler = controlHandler('ScheduleHandler', 'schedule-handler.ts', 'schedule');
 
     const boilerUsageHandler = new nodejs.NodejsFunction(this, 'BoilerUsageHandler', {
       entry: path.join(__dirname, '../lambda/api/boiler-usage-handler.ts'),
@@ -108,6 +115,7 @@ export class ApiStack extends cdk.Stack {
         allowMethods: [
           apigwv2.CorsHttpMethod.GET,
           apigwv2.CorsHttpMethod.POST,
+          apigwv2.CorsHttpMethod.PUT,
           apigwv2.CorsHttpMethod.OPTIONS,
         ],
         allowHeaders: ['Content-Type', 'Authorization'],
@@ -130,6 +138,18 @@ export class ApiStack extends cdk.Stack {
       path: '/setpoint',
       methods: [apigwv2.HttpMethod.POST],
       integration: new HttpLambdaIntegration('SetpointIntegration', setpointHandler),
+    });
+
+    api.addRoutes({
+      path: '/mode',
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ModeIntegration', modeHandler),
+    });
+
+    api.addRoutes({
+      path: '/schedule',
+      methods: [apigwv2.HttpMethod.PUT],
+      integration: new HttpLambdaIntegration('ScheduleIntegration', scheduleHandler),
     });
 
     api.addRoutes({

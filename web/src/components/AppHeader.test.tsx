@@ -11,3 +11,12 @@ describe('AppHeader', () => {
     expect(onSignOut).toHaveBeenCalledOnce();
   });
 });
+
+describe('AppHeader nav', () => {
+  it('renders navigation links', () => {
+    render(<AppHeader onSignOut={vi.fn()} nav={<a href="/schedule">Schedule</a>} />);
+    expect(screen.getByRole('navigation', { name: 'Main' })).toContainElement(
+      screen.getByRole('link', { name: 'Schedule' }),
+    );
+  });
+});

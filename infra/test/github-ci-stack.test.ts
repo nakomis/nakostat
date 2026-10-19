@@ -112,6 +112,47 @@ describe('GithubCiStack', () => {
     });
   });
 
+  test('role may put and get firmware under nakostat/ in the env firmware bucket', () => {
+    sandboxTemplate.hasResourceProperties('AWS::IAM::Role', {
+      Policies: Match.arrayWith([
+        {
+          PolicyName: 'FirmwarePublish',
+          PolicyDocument: {
+            Version: '2012-10-17',
+            Statement: [
+              {
+                Effect: 'Allow',
+                Action: ['s3:PutObject', 's3:GetObject'],
+                Resource: 'arn:aws:s3:::nakomis-firmware-sandbox/nakostat/*',
+              },
+              {
+                Effect: 'Allow',
+                Action: 's3:ListBucket',
+                Resource: 'arn:aws:s3:::nakomis-firmware-sandbox',
+              },
+            ],
+          },
+        },
+      ]),
+    });
+  });
+
+  test('prod firmware permissions use the prod bucket', () => {
+    const prodTemplate = makeStack('prod');
+    prodTemplate.hasResourceProperties('AWS::IAM::Role', {
+      Policies: Match.arrayWith([
+        Match.objectLike({
+          PolicyName: 'FirmwarePublish',
+          PolicyDocument: Match.objectLike({
+            Statement: Match.arrayWith([
+              Match.objectLike({ Resource: 'arn:aws:s3:::nakomis-firmware-prod/nakostat/*' }),
+            ]),
+          }),
+        }),
+      ]),
+    });
+  });
+
   test('outputs role ARN', () => {
     sandboxTemplate.hasOutput('NakostatCiRoleArn', {});
   });

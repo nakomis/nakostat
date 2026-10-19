@@ -128,3 +128,18 @@
     @apply font-sans;
   }
 }
+
+/* Data-visualisation tokens: one hue per measure, validated against each surface. */
+:root {
+  --viz-temp: oklch(0.58 0.17 45);
+  --viz-humidity: oklch(0.52 0.14 250);
+  --viz-boiler: oklch(0.62 0.17 55);
+  --viz-grid: oklch(0.922 0 0);
+}
+
+.dark {
+  --viz-temp: oklch(0.75 0.15 55);
+  --viz-humidity: oklch(0.74 0.11 240);
+  --viz-boiler: oklch(0.78 0.15 65);
+  --viz-grid: oklch(1 0 0 / 10%);
+}
