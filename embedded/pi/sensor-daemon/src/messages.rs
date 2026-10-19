@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::control::{Demand, HeatlinkStatus, Mode, Source, ts};
 use crate::schedule::Schedule;
 
-/// The heatlink stores at most this many entries a day.
-pub const MAX_ENTRIES_PER_DAY: usize = 8;
+pub use crate::schedule::MAX_ENTRIES_PER_DAY;
 
 /// The heatlink clamps `ttl_s` to this range; the daemon does the same so it
 /// never claims a TTL the heatlink would not honour.
@@ -158,10 +157,14 @@ struct DemandCmd {
     setpoint: f32,
     temperature: f32,
     ttl_s: u32,
+    ts: i64,
 }
 
-/// `{"command":"demand","on":…,"source":…,"setpoint":…,"temperature":…,"ttl_s":…}`
-pub fn demand_command(d: &Demand, ttl_s: u32) -> String {
+/// `{"command":"demand","on":…,"source":…,"setpoint":…,"temperature":…,"ttl_s":…,"ts":…}`
+///
+/// `ts` is `now` in Unix seconds: the heatlink ignores a demand more than 60 s
+/// old (one replayed from a queue after an outage) when its own clock is valid.
+pub fn demand_command(d: &Demand, ttl_s: u32, now: DateTime<Utc>) -> String {
     serde_json::to_string(&DemandCmd {
         command: "demand",
         on: d.on,
@@ -169,6 +172,7 @@ pub fn demand_command(d: &Demand, ttl_s: u32) -> String {
         setpoint: d.setpoint,
         temperature: d.temperature,
         ttl_s: ttl_s.clamp(*TTL_RANGE_S.start(), *TTL_RANGE_S.end()),
+        ts: now.timestamp(),
     })
     .expect("demand serialises")
 }
@@ -176,16 +180,27 @@ pub fn demand_command(d: &Demand, ttl_s: u32) -> String {
 #[derive(Serialize)]
 struct SetScheduleCmd<'a> {
     command: &'static str,
+    enabled: bool,
     tz: &'a str,
     comfort_c: f32,
     duty_pct: u8,
     days: Vec<Vec<(u16, f32)>>,
 }
 
-/// `{"command":"set_schedule","tz":…,"comfort_c":…,"duty_pct":…,"days":[…7 days, Mon first]}`
-pub fn set_schedule_command(schedule: &Schedule, tz: &str, comfort_c: f32, duty_pct: u8) -> String {
+/// `{"command":"set_schedule","enabled":…,"tz":…,"comfort_c":…,"duty_pct":…,"days":[…7 days, Mon first]}`
+///
+/// `enabled` is false while the daemon's mode is off, so the heatlink's
+/// fallback keeps the relay off rather than heating a house switched off.
+pub fn set_schedule_command(
+    schedule: &Schedule,
+    enabled: bool,
+    tz: &str,
+    comfort_c: f32,
+    duty_pct: u8,
+) -> String {
     serde_json::to_string(&SetScheduleCmd {
         command: "set_schedule",
+        enabled,
         tz,
         comfort_c,
         duty_pct,
@@ -373,10 +388,11 @@ mod tests {
             setpoint: 20.5,
             temperature: 19.8,
         };
-        let s = demand_command(&d, 300);
+        let now = Utc.with_ymd_and_hms(2026, 10, 19, 10, 0, 0).unwrap();
+        let s = demand_command(&d, 300, now);
         assert_eq!(
             s,
-            r#"{"command":"demand","on":true,"source":"schedule","setpoint":20.5,"temperature":19.8,"ttl_s":300}"#
+            r#"{"command":"demand","on":true,"source":"schedule","setpoint":20.5,"temperature":19.8,"ttl_s":300,"ts":1792404000}"#
         );
     }
 
@@ -394,7 +410,10 @@ mod tests {
                 setpoint: 7.0,
                 temperature: 15.0,
             };
-            assert_eq!(parse_value(&demand_command(&d, 300))["source"], name);
+            assert_eq!(
+                parse_value(&demand_command(&d, 300, Utc::now()))["source"],
+                name
+            );
         }
         let d = Demand {
             on: false,
@@ -402,8 +421,11 @@ mod tests {
             setpoint: 7.0,
             temperature: 15.0,
         };
-        assert_eq!(parse_value(&demand_command(&d, 5))["ttl_s"], 60);
-        assert_eq!(parse_value(&demand_command(&d, 99_999))["ttl_s"], 1800);
+        assert_eq!(parse_value(&demand_command(&d, 5, Utc::now()))["ttl_s"], 60);
+        assert_eq!(
+            parse_value(&demand_command(&d, 99_999, Utc::now()))["ttl_s"],
+            1800
+        );
     }
 
     #[test]
@@ -412,10 +434,10 @@ mod tests {
         s.add(DayOfWeek::Mon, TimeOfDay::new(6, 0), 20.0);
         s.add(DayOfWeek::Mon, TimeOfDay::new(9, 0), 16.0);
         s.add(DayOfWeek::Sun, TimeOfDay::new(22, 30), 14.5);
-        let cmd = set_schedule_command(&s, "GMT0BST,M3.5.0/1,M10.5.0", 18.0, 67);
+        let cmd = set_schedule_command(&s, true, "GMT0BST,M3.5.0/1,M10.5.0", 18.0, 67);
         assert_eq!(
             cmd,
-            r#"{"command":"set_schedule","tz":"GMT0BST,M3.5.0/1,M10.5.0","comfort_c":18.0,"duty_pct":67,"days":[[[360,20.0],[540,16.0]],[],[],[],[],[],[[1350,14.5]]]}"#
+            r#"{"command":"set_schedule","enabled":true,"tz":"GMT0BST,M3.5.0/1,M10.5.0","comfort_c":18.0,"duty_pct":67,"days":[[[360,20.0],[540,16.0]],[],[],[],[],[],[[1350,14.5]]]}"#
         );
     }
 
@@ -423,6 +445,7 @@ mod tests {
     fn set_schedule_command_default_schedule_has_seven_days() {
         let v = parse_value(&set_schedule_command(
             &default_schedule(),
+            true,
             "GMT0BST,M3.5.0/1,M10.5.0",
             18.0,
             67,
@@ -434,6 +457,15 @@ mod tests {
             json!([[420, 20.0], [540, 16.0], [1020, 20.0], [1320, 14.0]])
         );
         assert_eq!(days[5], json!([[480, 20.0], [1380, 14.0]]));
+    }
+
+    #[test]
+    fn set_schedule_command_disabled_while_off() {
+        let cmd = set_schedule_command(&Schedule::new(), false, "UTC0", 18.0, 67);
+        assert_eq!(
+            cmd,
+            r#"{"command":"set_schedule","enabled":false,"tz":"UTC0","comfort_c":18.0,"duty_pct":67,"days":[[],[],[],[],[],[],[]]}"#
+        );
     }
 
     #[test]

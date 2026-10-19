@@ -33,6 +33,7 @@ stale_after_s      = 300     # no good reading for this long → stop sending de
 demand_interval_s  = 30      # demand heartbeat to the heatlink
 state_interval_s   = 60      # pi/state heartbeat
 state_path         = "/var/lib/nakostat/control.json"   # persisted mode + override
+allow_mock_demand  = false   # mock-sensor builds only: send demand anyway (bench testing)
 
 # The heatlink (ESP32-S3 boiler switch). Every key is optional; defaults shown.
 [heatlink]

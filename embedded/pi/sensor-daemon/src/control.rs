@@ -9,7 +9,9 @@
 //! Rules (spec *Control logic (daemon)*):
 //! - Effective setpoint: mode `off` → the frost floor; else the active override
 //!   (which lasts until the next schedule transition, Nest-style); else the
-//!   schedule. An empty schedule falls back to the frost floor.
+//!   schedule. An empty schedule falls back to the frost floor. A setpoint
+//!   received in mode `off` switches back to `heat` and applies; replacing the
+//!   schedule moves an active override's end to the new next transition.
 //! - Hysteresis: demand turns on when `T < SP − 0.3`, off when `T ≥ SP + 0.2`.
 //! - Short-cycle guard: once demand changes it holds for 3 minutes, unless the
 //!   setpoint moves by 1 °C or more from the one in force at the last change.
@@ -269,6 +271,10 @@ impl<Tz: TimeZone> Controller<Tz> {
         &self.schedule
     }
 
+    pub fn mode(&self) -> Mode {
+        self.mode
+    }
+
     pub fn persisted(&self) -> Persisted {
         Persisted {
             mode: self.mode,
@@ -310,20 +316,33 @@ impl<Tz: TimeZone> Controller<Tz> {
         self.override_.filter(|o| now < o.until)
     }
 
+    /// When an override set at `now` ends: the next schedule transition, or a
+    /// day later if the schedule is empty.
+    fn override_until(&self, now: DateTime<Utc>) -> DateTime<Utc> {
+        self.schedule
+            .next_transition_after(&now.with_timezone(&self.tz))
+            .map(|t| t.with_timezone(&Utc))
+            .unwrap_or(now + OVERRIDE_WITHOUT_SCHEDULE)
+    }
+
     /// Set a manual setpoint (Pish, web, Alexa): an override until the next
     /// schedule transition. Rejects non-finite or out-of-range values.
+    ///
+    /// A setpoint received in mode `off` switches the mode back to `heat`:
+    /// "set the heating to 21" means "heat to 21", not "remember 21 for later".
+    /// Callers detect the switch by comparing [`Controller::mode`] before and
+    /// after.
     pub fn set_override(&mut self, setpoint: f32, now: DateTime<Utc>) -> Result<Override, String> {
         if !setpoint.is_finite() || !(MIN_TARGET_C..=MAX_TARGET_C).contains(&setpoint) {
             return Err(format!(
                 "setpoint {setpoint} outside {MIN_TARGET_C}–{MAX_TARGET_C} °C"
             ));
         }
-        let until = self
-            .schedule
-            .next_transition_after(&now.with_timezone(&self.tz))
-            .map(|t| t.with_timezone(&Utc))
-            .unwrap_or(now + OVERRIDE_WITHOUT_SCHEDULE);
-        let o = Override { setpoint, until };
+        let o = Override {
+            setpoint,
+            until: self.override_until(now),
+        };
+        self.mode = Mode::Heat;
         self.override_ = Some(o);
         Ok(o)
     }
@@ -339,9 +358,19 @@ impl<Tz: TimeZone> Controller<Tz> {
         self.persisted() != before
     }
 
-    /// Replace the schedule. An existing override keeps its expiry.
-    pub fn set_schedule(&mut self, schedule: Schedule) {
+    /// Replace the schedule. An active override now ends at the *new*
+    /// schedule's next transition after `now`. Returns true if the override
+    /// changed (so the caller persists it).
+    pub fn set_schedule(&mut self, schedule: Schedule, now: DateTime<Utc>) -> bool {
         self.schedule = schedule;
+        match self.active_override(now) {
+            Some(o) => {
+                let until = self.override_until(now);
+                self.override_ = Some(Override { until, ..o });
+                until != o.until
+            }
+            None => false,
+        }
     }
 
     /// Drop the override once it has expired. Returns true if it was dropped.
@@ -588,23 +617,60 @@ mod tests {
     }
 
     #[test]
-    fn override_set_while_off_is_kept_but_frost_applies() {
+    fn setpoint_while_off_switches_back_to_heat() {
+        // "Alexa, set the heating to 22" while off means "heat to 22".
         let mut c = ctl(default_schedule());
         c.set_mode(Mode::Off);
+        assert_eq!(c.mode(), Mode::Off);
         c.set_override(22.0, at(10, 0)).unwrap();
-        assert_eq!(c.effective_setpoint(at(10, 1)), 7.0);
-        c.set_mode(Mode::Heat);
+        assert_eq!(c.mode(), Mode::Heat);
         assert_eq!(c.effective_setpoint(at(10, 1)), 22.0);
+        assert_eq!(c.persisted().mode, Mode::Heat);
     }
 
     #[test]
-    fn new_schedule_keeps_override() {
+    fn rejected_setpoint_while_off_stays_off() {
+        let mut c = ctl(default_schedule());
+        c.set_mode(Mode::Off);
+        assert!(c.set_override(99.0, at(10, 0)).is_err());
+        assert_eq!(c.mode(), Mode::Off);
+    }
+
+    #[test]
+    fn new_schedule_keeps_override_until_its_next_transition() {
         let mut c = ctl(default_schedule());
         c.set_override(22.0, at(10, 0)).unwrap();
-        c.set_schedule(flat(18.0));
-        assert_eq!(c.effective_setpoint(at(11, 0)), 22.0);
-        assert_eq!(c.effective_setpoint(at(17, 0)), 18.0);
-        assert_eq!(c.schedule().entries(DayOfWeek::Mon).len(), 1);
+        // A schedule with a transition at 12:00 ends the override then, not at
+        // the old schedule's 17:00.
+        let mut s = flat(18.0);
+        s.add(DayOfWeek::Mon, TimeOfDay::new(12, 0), 19.0);
+        assert!(c.set_schedule(s, at(11, 0)));
+        assert_eq!(c.active_override(at(11, 0)).unwrap().until, at(12, 0));
+        assert_eq!(c.effective_setpoint(at(11, 59)), 22.0);
+        assert_eq!(c.effective_setpoint(at(12, 0)), 19.0);
+        assert_eq!(c.schedule().entries(DayOfWeek::Mon).len(), 2);
+    }
+
+    #[test]
+    fn new_schedule_can_extend_override() {
+        let mut c = ctl(default_schedule());
+        c.set_override(22.0, at(10, 0)).unwrap();
+        // Single Monday-midnight entry: the next transition is a week away.
+        assert!(c.set_schedule(flat(18.0), at(11, 0)));
+        let until = c.active_override(at(11, 0)).unwrap().until;
+        assert_eq!(until, Utc.with_ymd_and_hms(2026, 10, 26, 0, 0, 0).unwrap());
+    }
+
+    #[test]
+    fn new_schedule_without_override_changes_no_override() {
+        let mut c = ctl(default_schedule());
+        assert!(!c.set_schedule(flat(18.0), at(11, 0)));
+        assert_eq!(c.persisted().override_, None);
+        // An expired override is left for expire_override to drop.
+        let mut c = ctl(default_schedule());
+        c.set_override(22.0, at(10, 0)).unwrap();
+        assert!(!c.set_schedule(flat(18.0), at(17, 30)));
+        assert_eq!(c.persisted().override_.unwrap().until, at(17, 0));
     }
 
     #[test]
