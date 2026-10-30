@@ -45,6 +45,23 @@ grounded at once can't happen with a working centre-off switch; it reads as **of
 Power: a 5 V USB charger into the DevKitC. The relay module's VCC is the DevKitC's 5 V pin, its GND
 to GND, its IN to GPIO 4.
 
+### On the heatlink PCB (`pcb/heatlink`, STAT-75)
+
+The board uses other pins and an active-high relay driver; `esp32s3/sdkconfig.board-v1` sets them:
+
+```bash
+idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board-v1" build
+```
+
+| Signal | GPIO | Notes |
+|---|---|---|
+| Relay | 12 | Low-side AO3400A with a 100k gate pull-down: **active-high**, off while the pin floats |
+| Switch "on" / "off" throws | 13 / 14 | 10k pull-ups on the board; common to GND |
+| RGB status LED | 15 | WS2812B-2020 through 330 Ω |
+| Button | 0 | BOOT (download strap) |
+
+The board is powered and flashed through the house USB connector (native USB, GPIO 19/20).
+
 ## Status LED
 
 | Colour | Meaning |
