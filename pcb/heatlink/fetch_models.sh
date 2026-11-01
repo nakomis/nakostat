@@ -19,6 +19,7 @@ MODELS=(
   C474952   # KF128-5.08-2P
   C1788493  # MT-0-103 toggle
   C5184954  # DB125-3.5-8P-GN-S (IO terminal)
+  C2977594  # DC3-2.54-16PAS (IDC header)
   C25905    # R0402
   C1525     # C0402
   C19702    # C0603

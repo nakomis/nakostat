@@ -43,6 +43,7 @@ _TABLE = {
     "TERM": ("KF128-5.08-2P", "C474952", "CONN-TH_P5.08_KF128-5.08-2P", "KF128-5.08-2P", True, 0),
     "TOGGLE": ("MTS-103 ON-OFF-ON", "C1788493", "SW-TH_MT-0-103-A101-M200-RS", "MT-0-103-A101-M200-RS+PJ", True, 0),
     "IO": ("DB125-3.5-8P-GN-S", "C5184954", "CONN-TH_8P-P3.50_DORABO_DB125-3.5-8P-GN-S", "DB125-3.5-8P-GN-S", True, 0),
+    "IDC": ("DC3-2.54-16PAS", "C2977594", "IDC-TH_16P-P2.54_C3406", "DC3-2.54-16PAS", True, 0),
     "R5K1": ("5k1", "C25905", "R0402", "0402WGF5101TCE", False, 0),
     "R10K": ("10k", "C25744", "R0402", "0402WGF1002TCE", False, 0),
     "R4K7": ("4k7", "C25900", "R0402", "0402WGF4701TCE", False, 0),
@@ -67,6 +68,7 @@ MFR = {
     "RELAY": ("Hongfa", "HF46F/5-HS1"), "FET": ("Alpha & Omega", "AO3400A"),
     "DIODE": ("Semtech", "1N4148W"), "TERM": ("Cixi Kefa", "KF128-5.08-2P-AA"),
     "TOGGLE": ("Yuen Fung", "MT-0-103-A101-M200-RS"), "IO": ("DORABO", "DB125-3.5-8P-GN-S"),
+    "IDC": ("ZHOURI", "DC3-2.54-16PAS"),
     "R4K7": ("UNI-ROYAL", "0402WGF4701TCE"),
     "R5K1": ("UNI-ROYAL", "0402WGF5101TCE"), "R10K": ("UNI-ROYAL", "0402WGF1002TCE"),
     "R100K": ("UNI-ROYAL", "0402WGF1003TCE"), "R100": ("UNI-ROYAL", "0402WGF1000TCE"),
@@ -88,7 +90,8 @@ BODY = {"ESP32": (-7.7, -12.8, 7.7, 7.7),
         "TERM": (-5.08, -5.4, 5.08, 5.3),
         "RELAY": (-10.4, -3.6, 10.5, 3.6),
         "TOGGLE": (-6.5, -4.0, 6.5, 4.0),
-        "IO": (-14.0, -3.9, 14.0, 3.5)}         # wire openings on the +y side
+        "IO": (-14.0, -3.9, 14.0, 3.5),         # wire openings on the +y side
+        "IDC": (-14.25, -4.52, 14.25, 4.5)}     # the shroud; its key slot is on the +y side
 # The antenna strip of the module, in footprint coordinates (above the top pad row).
 ESP32_ANTENNA = (-7.7, -12.8, 7.7, -7.75)
 

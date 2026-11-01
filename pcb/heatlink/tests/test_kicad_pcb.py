@@ -86,7 +86,7 @@ def test_pad_extras_and_fab_note_written(tmp_path):
     # nine 1.2 mm centre GND pads on the module; every SMD GND pad and both plated hole rings
     # join the pour solidly
     gnd_pads = sum(1 for r, i in c.instances.items() for pad in i.part.footprint.pads
-                   if (pad.kind == "smd" or r in ("H3", "H4", "J3")) and c.net_of(r, pad.number) == "GND")
+                   if (pad.kind == "smd" or r in ("H3", "H4", "J3", "J4")) and c.net_of(r, pad.number) == "GND")
     assert text.count("(solder_paste_margin -0.18)") == 9
     assert text.count("(zone_connect 2)") == gnd_pads and gnd_pads > 9
     tree = parse(text)

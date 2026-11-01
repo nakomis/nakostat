@@ -17,6 +17,7 @@ PARTS=(
   C474952   # TERM (KF128-5.08-2P-AA)
   C1788493  # TOGGLE (MT-0-103-A101-M200-RS, ON-OFF-ON)
   C5184954  # IO (DB125-3.5-8P-GN-S, 8-way 3.5 mm screw terminal)
+  C2977594  # IDC (DC3-2.54-16PAS, 16-way boxed header)
   C25905    # R5K1
   C25744    # R10K
   C25900    # R4K7 (I2C pull-ups on the IO terminal)

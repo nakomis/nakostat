@@ -63,6 +63,6 @@ def test_local_footprints():
 
 def test_tht_flags():
     assert part("MH").tht and not part("ESP32").tht and not part("JST5").tht
-    # the relay, the two terminal blocks and the toggle are the through-hole assembled parts
-    assert {k for k, p in PARTS.items() if p.tht and p.lcsc} == {"RELAY", "TERM", "IO", "TOGGLE"}
+    # the relay, the two terminal blocks, the IDC header and the toggle are the through-hole parts
+    assert {k for k, p in PARTS.items() if p.tht and p.lcsc} == {"RELAY", "TERM", "IO", "IDC", "TOGGLE"}
     assert not part("MHN").tht

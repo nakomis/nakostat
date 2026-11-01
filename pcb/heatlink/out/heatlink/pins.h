@@ -21,3 +21,17 @@
 #define HL_PIN_IO_4 4
 #define HL_PIN_IO_5 5
 #define HL_PIN_IO_6 6
+
+/* IDC header J4 (pin: signal): 1 3V3, 2 G, 3 7, 4 8, 5 9, 6 10, 7 11, 8 G, 9 16, 10 17, 11 18, 12 21, 13 38, 14 39, 15 40, 16 5V. */
+#define HL_PIN_HDR_7 7
+#define HL_PIN_HDR_8 8
+#define HL_PIN_HDR_9 9
+#define HL_PIN_HDR_10 10
+#define HL_PIN_HDR_11 11
+#define HL_PIN_HDR_16 16
+#define HL_PIN_HDR_17 17
+#define HL_PIN_HDR_18 18
+#define HL_PIN_HDR_21 21
+#define HL_PIN_HDR_38 38
+#define HL_PIN_HDR_39 39
+#define HL_PIN_HDR_40 40

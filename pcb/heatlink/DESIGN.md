@@ -11,8 +11,9 @@ Decided with Martin (30 Oct 2026):
 - The relay and the switch are parts PCBWay can assemble.
 - The status LED is a WS2812B-2020, as on tinycrypt.
 - A PG7 gland brings the boiler cable in, at the end of the board with the mains terminals.
-- An 8-way IO terminal block along one long edge (1 Nov 2026), with power and five spare GPIOs, so
-  that the boards not used as heatlinks are reusable as general Wi-Fi relay and IO boards.
+- An 8-way IO terminal block along one long edge and a 16-way boxed IDC header beside it (1 Nov
+  2026): power and seventeen spare GPIOs, so that the boards not used as heatlinks are reusable as
+  general Wi-Fi relay and IO boards.
 
 ## Blocks
 
@@ -32,6 +33,7 @@ Decided with Martin (30 Oct 2026):
 | Button | TS-1187A-B-A-B | C318884 | BOOT (GPIO0), for recovery only |
 | Status LED | WS2812B-2020-V6 | C52917434 | Beside the toggle, under a light pipe |
 | IO terminal | DORABO DB125-3.5-8P-GN-S | C5184954 | 8-way 3.5 mm screw terminal, 300 V 10 A, 8.6 mm tall |
+| IDC header | ZHOURI DC3-2.54-16PAS | C2977594 | 16-way boxed header, 2.54 mm, keyed: a ribbon cable, or single female Dupont wires |
 | Passives | 0402/0603 | — | As tinycrypt, plus the gate resistors (100 Ω, 100k), the switch pull-ups and the I²C pull-ups (4.7k) |
 
 ## Circuit
@@ -62,6 +64,19 @@ Decided with Martin (30 Oct 2026):
   - SDA and SCL have 4.7k pull-ups to 3V3. All five GPIOs are ADC1 pins and go straight to the
     module, as on a dev board: no series resistors. The chip's own ESD diodes (about 2 kV) are
     the only protection, so don't run long cables from it to anything outside the case.
+- **IDC header (J4):** also for reuse. Odd pins are the row on the key side; pin 1 is marked on
+  both silkscreens, and the back labels every pin.
+
+  | Pins | 1–2 | 3–4 | 5–6 | 7–8 | 9–10 | 11–12 | 13–14 | 15–16 |
+  |---|---|---|---|---|---|---|---|---|
+  | Signals | 3V3, GND | GPIO 7, 8 | GPIO 9, 10 | GPIO 11, GND | GPIO 16, 17 | GPIO 18, 21 | GPIO 38, 39 | GPIO 40, 5V |
+
+  - The two grounds sit between the signal groups, so each signal in a ribbon has a return wire
+    near it, and a daughterboard's supply current returns through two pins.
+  - 7–11 are ADC1 and touch pins. The S3's GPIO matrix routes I²C, SPI, UART or PWM to any of
+    them. Like J3's, they go straight to the module.
+  - Buy a 16-way IDC ribbon cable (2.54 mm, female–female); at the far end, an IDC16 screw-terminal
+    breakout, an IDC16 breadboard adapter, or a daughterboard with the same header.
 
 ## Mains safety
 
@@ -94,15 +109,16 @@ the USB charger. The board keeps the two apart:
 
 ## Board
 
-- **Size and stack:** 66 × 38 mm, 2 layers, 1.6 mm FR-4, ENIG finish, black mask, white silk.
+- **Size and stack:** 66 × 49 mm, 2 layers, 1.6 mm FR-4, ENIG finish, black mask, white silk.
   Every part is on the top.
 - **Layout:**
   - At x = 0, the gland end: J2 with its openings facing the gland, then the relay with its contacts
     towards J2.
   - In the middle: the relay driver, the BOOT button, the toggle with the LED beside it, then the
     USB socket on the long edge with its fuse, TVS, regulator and ESD.
-  - Along the long edge opposite the USB socket, on the low-voltage side: J3, in an 8 mm strip,
-    with its wire openings facing the edge. Its end pin keeps the 8 mm from the relay's contacts.
+  - Along the long edge opposite the USB socket, on the low-voltage side, a 19 mm strip: J3 at the
+    edge, with its wire openings facing out (its end pin keeps the 8 mm from the relay's contacts),
+    then J4 with its key slot facing into the board.
   - At the far end: the module, with its antenna **overhanging the x = 66 edge by 5.05 mm**
     (intentional, and marked on Dwgs.User). That keeps the antenna as far from the relay and the
     mains as the board allows.
@@ -121,9 +137,10 @@ the USB charger. The board keeps the two apart:
   - **What's kept clear:** stitching vias avoid his white fur, no via sits under the text, and there
     are no pixels over through-hole pads or H3's ring.
 - **Heights above the board** (for the case): toggle bushing top 18.1 mm, with the lever another
-  10.5 mm above that. Relay 15.3 mm, terminal block 14.1 mm, IO terminal 8.6 mm, module 2.4 mm. The case lid needs a
+  10.5 mm above that. Relay 15.3 mm, terminal block 14.1 mm, IO terminal 8.6 mm, IDC header 9 mm, module 2.4 mm. The case lid needs a
   pocket around the toggle, so the M6 bushing comes through it with room for the nut, and a slot
-  in the side wall over J3's openings, with room for a screwdriver above it.
+  in the side wall over J3's openings, with room for a screwdriver above it, and a slot in the lid
+  over J4 for the ribbon cable (or a removable panel, for the heatlink, which doesn't use it).
 
 ## Pins (for the firmware)
 
@@ -140,6 +157,7 @@ the USB charger. The board keeps the two apart:
 | UART0 TX / RX (debug pads) | 43 / 44 |
 | IO terminal SDA / SCL (4.7k pull-ups) | 1 / 2 |
 | IO terminal GPIOs | 4, 5, 6 |
+| IDC header GPIOs | 7, 8, 9, 10, 11, 16, 17, 18, 21, 38, 39, 40 |
 
 ## Not on this board
 

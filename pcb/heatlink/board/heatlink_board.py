@@ -7,7 +7,8 @@ the boiler terminals and the relay contacts are there, inside MAINS_X. Everythin
 voltage and keeps 8 mm from mains copper (board/kicad_pcb.py DRU). The module sits at the other
 end with its antenna overhanging the x = L edge, as far from the relay and the mains as the
 board allows. A strip IO_W deep along the y = 0 edge of the low-voltage side carries J3, an
-8-way screw terminal with power and five spare GPIOs, so that the spare boards are reusable.
+8-way screw terminal with power and five spare GPIOs, and J4, a 16-way boxed IDC header (ribbon
+cable or single Dupont wires) with twelve more, so that the spare boards are reusable.
 """
 import math
 
@@ -20,7 +21,7 @@ from board.placement import Placement, rotate
 
 HERE = Path(__file__).resolve().parent.parent
 
-IO_W = 8.0                             # the IO terminal strip along y = 0
+IO_W = 19.0                            # the IO strip along y = 0: J3, then J4
 W = 30.0 + IO_W
 L = 66.0
 CY = IO_W + 15.0                       # the module's centre line
@@ -35,7 +36,8 @@ MAINS_X = 28.5                         # low-voltage copper stays right of this 
 # an octal pin (47/48). At reset every one of them is an input, so the relay FET's 100k
 # pull-down holds the relay off until the firmware drives it.
 GPIO = {"RELAY": 12, "SW_ON": 13, "SW_OFF": 14, "LED": 15, "BUTTON": 0, "USB_DM": 19, "USB_DP": 20,
-        "UART_TX": 43, "UART_RX": 44, "IO_SDA": 1, "IO_SCL": 2, "IO_4": 4, "IO_5": 5, "IO_6": 6}
+        "UART_TX": 43, "UART_RX": 44, "IO_SDA": 1, "IO_SCL": 2, "IO_4": 4, "IO_5": 5, "IO_6": 6,
+        **{f"HDR_{n}": n for n in (7, 8, 9, 10, 11, 16, 17, 18, 21, 38, 39, 40)}}
 _MODPIN = {43: "TXD0", 44: "RXD0"}
 
 
@@ -58,6 +60,12 @@ DEBUG_LABELS = {"1": "EN", "2": "RX", "3": "TX", "4": "G", "5": "3V3"}
 IO_PINS = {"1": "VBUS", "2": "GND", "3": "+3V3", "4": "IO_SDA", "5": "IO_SCL", "6": "IO_4", "7": "IO_5",
            "8": "IO_6"}
 IO_LABELS = {"1": "5V", "2": "G", "3": "3V3", "4": "SDA", "5": "SCL", "6": "4", "7": "5", "8": "6"}
+# J4 (16-way boxed IDC header, 2.54 mm): a ground between the signal groups, as ribbon practice
+# has it; 3V3 and GND at pin 1-2, 5V at pin 16. Odd pins are the row on the key side.
+HDR_PINS = {"1": "+3V3", "2": "GND", "3": "HDR_7", "4": "HDR_8", "5": "HDR_9", "6": "HDR_10",
+            "7": "HDR_11", "8": "GND", "9": "HDR_16", "10": "HDR_17", "11": "HDR_18", "12": "HDR_21",
+            "13": "HDR_38", "14": "HDR_39", "15": "HDR_40", "16": "VBUS"}
+HDR_LABELS = {n: {"+3V3": "3V3", "GND": "G", "VBUS": "5V"}.get(net, net[4:]) for n, net in HDR_PINS.items()}
 
 
 def build_heatlink():
@@ -77,6 +85,7 @@ def build_heatlink():
     d3 = c.add("DIODE", "D3")
     tp = c.add("DEBUG", "TP1")
     j3 = c.add("IO", "J3")
+    j4 = c.add("IDC", "J4")
     for ref in ("H1", "H2"):
         c.add("MHN", ref)
     for ref in ("H3", "H4"):
@@ -172,6 +181,13 @@ def build_heatlink():
         c.connect(net, (c.add("R4K7", ref), "1"))
         c.connect(v33, (c.instances[ref], "2"))
 
+    # IDC header: twelve more GPIOs, straight to the module.
+    for pad, net in HDR_PINS.items():
+        c.connect(net, (j4, pad))
+    for k in GPIO:
+        if k.startswith("HDR_"):
+            c.connect(k, (u1, modpin(GPIO[k])))
+
     # Mounting holes: the two on the low-voltage side are plated, on GND; the two in the mains
     # area are unplated and have no copper.
     c.connect(gnd, (c.instances["H3"], "1"), (c.instances["H4"], "1"))
@@ -205,7 +221,7 @@ AT = {r: (x, round(y + IO_W, 4), rot) for r, (x, y, rot) in _AT.items()}
 # The top corner holes stay in the corners; J3 lies in the strip with its openings facing y = 0,
 # clear of the mains area (its end pad keeps 8 mm from the relay's contact copper) and of H3.
 AT.update({"H1": (3.5, 3.5, 0), "H3": (62.5, 3.5, 0), "J3": (44.0, 4.0, 180),
-           "R4": (58.6, 10.2, 0), "R5": (61.0, 10.2, 0)})
+           "J4": (46.5, 13.9, 0), "R4": (63.4, 11.5, 90), "R5": (63.4, 14.5, 90)})
 
 
 def place_heatlink(circuit):
@@ -328,6 +344,12 @@ def silk(circuit, placement):
         x, y = pad_xy("J3", n)
         out.append((text, round(x, 3), round(y + 4.6, 3), 0.8))
         out.append((text, round(x, 3), round(y + 2.4, 3), 0.9, "B.SilkS"))
+    # J4's labels on the back, beside each row (the shroud covers the front)
+    for n, text in HDR_LABELS.items():
+        x, y = pad_xy("J4", n)
+        out.append((text, round(x, 3), round(y + (1.75 if int(n) % 2 else -1.75), 3), 0.8, "B.SilkS"))
+    x, y = pad_xy("J4", "1")
+    out.append(("1", round(x - 2.6, 3), round(y + 1.75, 3), 0.8, "B.SilkS"))
     for n, text in J1_LABELS.items():
         x, y = pad_xy("J1", n)
         out.append((text, round(x, 3), round(y - 1.6, 3), 0.7, "F.SilkS", 90))
@@ -362,7 +384,7 @@ def pad_extra(circuit):
     joins the pour solidly rather than through thermal spokes: the parts are reflowed, and the
     small pads (SOT-23, 0402) otherwise get one spoke where tracks hem them in. So do the plated
     mounting-hole rings, which would otherwise leave the board corners beyond them unjoined, and
-    J3's GND pin, which the routed tracks otherwise leave on a one-spoke island."""
+    J3's and J4's GND pins, which the routed tracks otherwise leave on one-spoke islands."""
     from board.sexpr import Sym
 
     def make(ref):
@@ -370,7 +392,7 @@ def pad_extra(circuit):
             extra = []
             if ref == "U1" and pad.number == "GND" and abs(pad.w - 1.2) < 1e-6:
                 extra.append([Sym("solder_paste_margin"), -0.18])
-            if (pad.kind == "smd" or ref in ("H3", "H4", "J3")) and circuit.net_of(ref, pad.number) == "GND":
+            if (pad.kind == "smd" or ref in ("H3", "H4", "J3", "J4")) and circuit.net_of(ref, pad.number) == "GND":
                 extra.append([Sym("zone_connect"), 2])
             return extra
         return f
@@ -388,6 +410,9 @@ def pins_h():
         lines.append(f"#define HL_PIN_{k} {GPIO[k]}")
     lines += ["", "/* IO terminal J3: " + ", ".join(IO_LABELS.values()) + " (SDA/SCL have 4.7k pull-ups). */"]
     for k in ("IO_SDA", "IO_SCL", "IO_4", "IO_5", "IO_6"):
+        lines.append(f"#define HL_PIN_{k} {GPIO[k]}")
+    lines += ["", "/* IDC header J4 (pin: signal): " + ", ".join(f"{n} {t}" for n, t in HDR_LABELS.items()) + ". */"]
+    for k in sorted((k for k in GPIO if k.startswith("HDR_")), key=lambda k: GPIO[k]):
         lines.append(f"#define HL_PIN_{k} {GPIO[k]}")
     return "\n".join(lines) + "\n"
 
@@ -515,6 +540,11 @@ def under_back_text(x, y, r=0.5):
     for n, t in IO_LABELS.items():
         px, py = AT["J3"][0] - IO_PITCH * (int(n) - 4.5), AT["J3"][1]
         texts += [(t, 0.8, px, py + 4.6), (t, 0.9, px, py + 2.4)]
+    for n, t in HDR_LABELS.items():
+        k = int(n)
+        px = AT["J4"][0] + 2.54 * ((k - 1) // 2 - 3.5)
+        py = AT["J4"][1] + (1.27 + 1.75 if k % 2 else -1.27 - 1.75)
+        texts.append((t, 0.8, px, py))
     for t, size, tx, ty in texts:
         w, h = 0.86 * size * len(t) + 0.15, 1.2 * size
         if abs(x - tx) <= w / 2 + r and abs(y - ty) <= h / 2 + r:

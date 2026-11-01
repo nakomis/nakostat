@@ -141,7 +141,7 @@ def test_pins_h_defines_the_gpio_numbers():
 # ---------------------------------------------------------------- placement
 
 def test_board_size_and_outline():
-    assert (hb.W, hb.L) == (38, 66)            # 30 mm plus the 8 mm IO strip
+    assert (hb.W, hb.L) == (49, 66)            # 30 mm plus the 19 mm IO strip (J3, J4)
     assert P.outline == (0.0, 0.0, hb.L, hb.W)
     assert set(P.at) == set(C.instances)
 
@@ -411,7 +411,7 @@ def test_pcbway_bom_marks_through_hole_parts(tmp_path):
     write_bom_pcbway(C, tmp_path / "bom.csv")
     rows = list(csv.DictReader(open(tmp_path / "bom.csv")))
     tht = {r for row in rows if row["Type"] == "THT" for r in row["Designator"].split(",")}
-    assert tht == {"K1", "J2", "J3", "SW2"}
+    assert tht == {"K1", "J2", "J3", "J4", "SW2"}
     qty = {r["Mfg Part #"]: int(r["Qty"]) for r in rows}
     for key in ("R10K", "C100N", "C10U", "R100", "R100K"):
         want = sum(1 for i in C.instances.values() if i.part.key == key)
@@ -464,4 +464,33 @@ def test_io_terminal_in_strip_clear_of_mains():
 def test_pins_h_has_io_pins():
     h = hb.pins_h()
     for k in ("IO_SDA", "IO_SCL", "IO_4", "IO_5", "IO_6"):
+        assert f"#define HL_PIN_{k} {hb.GPIO[k]}" in h
+
+
+# ---------------------------------------------------------------- IDC header (J4)
+
+def test_idc_header_pinout():
+    nets = [C.net_of("J4", str(n)) for n in range(1, 17)]
+    assert nets[:2] == ["+3V3", "GND"] and nets[7] == "GND" and nets[15] == "VBUS"
+    gpios = [n for n in nets if n.startswith("HDR_")]
+    assert len(gpios) == len(set(gpios)) == 12
+    for k in gpios:
+        pads = C.instances["U1"].part.pins[hb.modpin(hb.GPIO[k])]
+        assert [C.net_of("U1", n) for n in pads] == [k] * len(pads)
+        # no strapping, flash, octal-PSRAM-shared or USB/UART pin
+        assert hb.GPIO[k] not in (0, 3, 19, 20, 43, 44, 45, 46) and not 26 <= hb.GPIO[k] <= 37
+
+
+def test_idc_header_in_strip_clear_of_j3():
+    x, y, rot = hb.AT["J4"]
+    x0, y0, x1, y1 = C.instances["J4"].part.body
+    jx, jy, _ = hb.AT["J3"]
+    j3_bottom = jy - C.instances["J3"].part.body[1]          # rotated 180
+    assert y + y0 > j3_bottom + 1.0 and y + y1 <= hb.IO_W
+    assert x + x0 > hb.MAINS_X and x + x1 < hb.L
+
+
+def test_pins_h_has_header_pins():
+    h = hb.pins_h()
+    for k in (k for k in hb.GPIO if k.startswith("HDR_")):
         assert f"#define HL_PIN_{k} {hb.GPIO[k]}" in h

@@ -1,7 +1,7 @@
 {
     "$schema": "https://schemas.kicad.org/drc.v1.json",
     "coordinate_units": "mm",
-    "date": "2026-11-01T11:34:41",
+    "date": "2026-11-01T11:49:56",
     "ignored_checks": [
         {
             "description": "Footprint has no courtyard defined",
@@ -41,9 +41,9 @@
                     "description": "PCB text 'V' on F.Silkscreen",
                     "pos": {
                         "x": 40.0,
-                        "y": 31.19
+                        "y": 42.19
                     },
-                    "uuid": "f201d8b1-b3ee-52a5-86cf-7bd62d771031"
+                    "uuid": "c7841164-a9f2-5d80-92e3-26fa8a1de2ce"
                 }
             ],
             "severity": "warning",
@@ -56,9 +56,9 @@
                     "description": "PCB text 'D-' on F.Silkscreen",
                     "pos": {
                         "x": 41.0,
-                        "y": 31.18
+                        "y": 42.18
                     },
-                    "uuid": "b0ae6f8e-1e53-5eb2-ac0c-b59bf10694ab"
+                    "uuid": "d8c7a6fe-a87d-5108-bf2a-168894dca394"
                 }
             ],
             "severity": "warning",
@@ -71,9 +71,9 @@
                     "description": "PCB text 'D+' on F.Silkscreen",
                     "pos": {
                         "x": 42.0,
-                        "y": 31.18
+                        "y": 42.18
                     },
-                    "uuid": "595ea099-8ecd-52cf-a64a-a574aea2de9a"
+                    "uuid": "94bde0e6-e4f5-53f4-85dc-643c27b37829"
                 }
             ],
             "severity": "warning",
@@ -86,9 +86,9 @@
                     "description": "PCB text 'CC' on F.Silkscreen",
                     "pos": {
                         "x": 43.0,
-                        "y": 31.19
+                        "y": 42.19
                     },
-                    "uuid": "14aeae55-6508-5990-9ace-8ce486c3bf5b"
+                    "uuid": "6dea567b-ceb5-5f9f-8e6d-38c5d3a6e193"
                 }
             ],
             "severity": "warning",
@@ -101,9 +101,9 @@
                     "description": "PCB text 'G' on F.Silkscreen",
                     "pos": {
                         "x": 44.0,
-                        "y": 31.18
+                        "y": 42.18
                     },
-                    "uuid": "b2965bad-7e02-5361-9310-46c628ff4358"
+                    "uuid": "a308219b-5960-5c8a-8d63-fad6485d7a83"
                 }
             ],
             "severity": "warning",
@@ -113,20 +113,20 @@
             "description": "Silkscreen clearance",
             "items": [
                 {
-                    "description": "Segment of K1 on F.Silkscreen",
-                    "pos": {
-                        "x": 20.5,
-                        "y": 10.9
-                    },
-                    "uuid": "25d1cb34-2f99-4ffa-8b6d-483f7dd89863"
-                },
-                {
                     "description": "Rectangle on F.Silkscreen",
                     "pos": {
                         "x": 0.4,
                         "y": 0.4
                     },
-                    "uuid": "fdb1188a-5976-5dea-9813-f927a6bef1d2"
+                    "uuid": "f349fdcb-ed90-5f22-b295-52a5d637a662"
+                },
+                {
+                    "description": "Segment of K1 on F.Silkscreen",
+                    "pos": {
+                        "x": 20.5,
+                        "y": 21.9
+                    },
+                    "uuid": "ffef3dae-9de5-4eed-bcdd-91910b10334e"
                 }
             ],
             "severity": "warning",
@@ -139,9 +139,9 @@
                     "description": "Segment of K1 on F.Silkscreen",
                     "pos": {
                         "x": 11.8,
-                        "y": 18.1
+                        "y": 29.1
                     },
-                    "uuid": "5ad9c734-82e9-4ae1-942a-afcf937a99a1"
+                    "uuid": "1ee9f38f-0c1a-462d-8310-2e09716ee195"
                 },
                 {
                     "description": "Rectangle on F.Silkscreen",
@@ -149,7 +149,7 @@
                         "x": 0.4,
                         "y": 0.4
                     },
-                    "uuid": "fdb1188a-5976-5dea-9813-f927a6bef1d2"
+                    "uuid": "f349fdcb-ed90-5f22-b295-52a5d637a662"
                 }
             ],
             "severity": "warning",
@@ -158,44 +158,21 @@
         {
             "description": "Silkscreen clearance",
             "items": [
-                {
-                    "description": "Circle of U3 on F.Silkscreen",
-                    "pos": {
-                        "x": 40.33,
-                        "y": 31.3
-                    },
-                    "uuid": "6fa1e485-a74b-4835-9046-b08e87630a3d"
-                },
                 {
                     "description": "PCB text 'V' on F.Silkscreen",
                     "pos": {
                         "x": 40.0,
-                        "y": 31.19
+                        "y": 42.19
                     },
-                    "uuid": "f201d8b1-b3ee-52a5-86cf-7bd62d771031"
-                }
-            ],
-            "severity": "warning",
-            "type": "silk_overlap"
-        },
-        {
-            "description": "Silkscreen clearance",
-            "items": [
-                {
-                    "description": "Arc of C8 on F.Silkscreen",
-                    "pos": {
-                        "x": 50.35,
-                        "y": 19.78
-                    },
-                    "uuid": "a05959dc-7eac-4b4a-b828-b3540dd6c3e9"
+                    "uuid": "c7841164-a9f2-5d80-92e3-26fa8a1de2ce"
                 },
                 {
-                    "description": "Segment of U1 on F.Silkscreen",
+                    "description": "Circle of U3 on F.Silkscreen",
                     "pos": {
-                        "x": 50.55,
-                        "y": 30.8
+                        "x": 40.33,
+                        "y": 42.3
                     },
-                    "uuid": "e67c545c-fb7f-40ec-ba23-f11927553d79"
+                    "uuid": "e9d4a17c-4b1c-46d0-b16e-cdc7d72ba357"
                 }
             ],
             "severity": "warning",
@@ -208,17 +185,17 @@
                     "description": "Segment of U1 on F.Silkscreen",
                     "pos": {
                         "x": 50.55,
-                        "y": 30.8
+                        "y": 41.8
                     },
-                    "uuid": "e67c545c-fb7f-40ec-ba23-f11927553d79"
+                    "uuid": "7017e626-5d20-4420-b425-8c5f08c2c5ff"
                 },
                 {
-                    "description": "Arc of C8 on F.Silkscreen",
+                    "description": "Segment of C8 on F.Silkscreen",
                     "pos": {
-                        "x": 50.35,
-                        "y": 21.22
+                        "x": 50.5,
+                        "y": 31.72
                     },
-                    "uuid": "fada0cbf-d8ea-4d91-8ba3-15aff2483a9c"
+                    "uuid": "90d0edcc-f445-42b0-ad5e-e055cad6ff42"
                 }
             ],
             "severity": "warning",
@@ -231,17 +208,17 @@
                     "description": "Segment of C8 on F.Silkscreen",
                     "pos": {
                         "x": 50.5,
-                        "y": 20.72
+                        "y": 30.78
                     },
-                    "uuid": "c0b5c3f8-78b2-4a56-a957-b4d7ac85ec01"
+                    "uuid": "3da7cc62-7858-434e-9acc-5efeb8b0f712"
                 },
                 {
                     "description": "Segment of U1 on F.Silkscreen",
                     "pos": {
                         "x": 50.55,
-                        "y": 30.8
+                        "y": 41.8
                     },
-                    "uuid": "e67c545c-fb7f-40ec-ba23-f11927553d79"
+                    "uuid": "7017e626-5d20-4420-b425-8c5f08c2c5ff"
                 }
             ],
             "severity": "warning",
@@ -251,20 +228,43 @@
             "description": "Silkscreen clearance",
             "items": [
                 {
-                    "description": "Segment of C8 on F.Silkscreen",
+                    "description": "Segment of U1 on F.Silkscreen",
                     "pos": {
-                        "x": 50.5,
-                        "y": 19.78
+                        "x": 50.55,
+                        "y": 41.8
                     },
-                    "uuid": "c33b8edc-cb13-463c-b1eb-c66f58cd5f82"
+                    "uuid": "7017e626-5d20-4420-b425-8c5f08c2c5ff"
                 },
+                {
+                    "description": "Arc of C8 on F.Silkscreen",
+                    "pos": {
+                        "x": 50.35,
+                        "y": 30.78
+                    },
+                    "uuid": "a323aed2-0e46-4539-b095-d553360a1855"
+                }
+            ],
+            "severity": "warning",
+            "type": "silk_overlap"
+        },
+        {
+            "description": "Silkscreen clearance",
+            "items": [
                 {
                     "description": "Segment of U1 on F.Silkscreen",
                     "pos": {
                         "x": 50.55,
-                        "y": 30.8
+                        "y": 41.8
                     },
-                    "uuid": "e67c545c-fb7f-40ec-ba23-f11927553d79"
+                    "uuid": "7017e626-5d20-4420-b425-8c5f08c2c5ff"
+                },
+                {
+                    "description": "Arc of C8 on F.Silkscreen",
+                    "pos": {
+                        "x": 50.35,
+                        "y": 32.22
+                    },
+                    "uuid": "79c36cdf-d939-4273-82d3-a1c0657b3b28"
                 }
             ],
             "severity": "warning",
@@ -274,18 +274,41 @@
             "description": "Silkscreen clipped by solder mask",
             "items": [
                 {
+                    "description": "PCB text 'D-' on F.Silkscreen",
+                    "pos": {
+                        "x": 41.0,
+                        "y": 42.18
+                    },
+                    "uuid": "d8c7a6fe-a87d-5108-bf2a-168894dca394"
+                },
+                {
+                    "description": "Pad 1 [USB_DM] of U3 on F.Cu",
+                    "pos": {
+                        "x": 41.05,
+                        "y": 42.15
+                    },
+                    "uuid": "2c19f5ad-0e3d-5240-8d00-ce65b5620760"
+                }
+            ],
+            "severity": "warning",
+            "type": "silk_over_copper"
+        },
+        {
+            "description": "Silkscreen clipped by solder mask",
+            "items": [
+                {
                     "description": "PCB text 'D+' on F.Silkscreen",
                     "pos": {
                         "x": 42.0,
-                        "y": 31.18
+                        "y": 42.18
                     },
-                    "uuid": "595ea099-8ecd-52cf-a64a-a574aea2de9a"
+                    "uuid": "94bde0e6-e4f5-53f4-85dc-643c27b37829"
                 },
                 {
                     "description": "Pad 2 [GND] of U3 on F.Cu",
                     "pos": {
                         "x": 42.0,
-                        "y": 31.15
+                        "y": 42.15
                     },
                     "uuid": "0b7a1193-2fb7-58ff-b18e-17ba190beef7"
                 }
@@ -300,40 +323,17 @@
                     "description": "PCB text 'CC' on F.Silkscreen",
                     "pos": {
                         "x": 43.0,
-                        "y": 31.19
+                        "y": 42.19
                     },
-                    "uuid": "14aeae55-6508-5990-9ace-8ce486c3bf5b"
+                    "uuid": "6dea567b-ceb5-5f9f-8e6d-38c5d3a6e193"
                 },
                 {
                     "description": "Pad 3 [USB_DP] of U3 on F.Cu",
                     "pos": {
                         "x": 42.95,
-                        "y": 31.15
+                        "y": 42.15
                     },
                     "uuid": "6f3fe1c6-c732-50c9-8593-1d3d429ee6c2"
-                }
-            ],
-            "severity": "warning",
-            "type": "silk_over_copper"
-        },
-        {
-            "description": "Silkscreen clipped by solder mask",
-            "items": [
-                {
-                    "description": "PCB text 'D-' on F.Silkscreen",
-                    "pos": {
-                        "x": 41.0,
-                        "y": 31.18
-                    },
-                    "uuid": "b0ae6f8e-1e53-5eb2-ac0c-b59bf10694ab"
-                },
-                {
-                    "description": "Pad 1 [USB_DM] of U3 on F.Cu",
-                    "pos": {
-                        "x": 41.05,
-                        "y": 31.15
-                    },
-                    "uuid": "2c19f5ad-0e3d-5240-8d00-ce65b5620760"
                 }
             ],
             "severity": "warning",
