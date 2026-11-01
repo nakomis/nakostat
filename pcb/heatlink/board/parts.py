@@ -42,8 +42,10 @@ _TABLE = {
     "DIODE": ("1N4148W", "C81598", "SOD-123F_L2.7-W1.6-LS3.8-RD", "1N4148W_C81598", False, 0),
     "TERM": ("KF128-5.08-2P", "C474952", "CONN-TH_P5.08_KF128-5.08-2P", "KF128-5.08-2P", True, 0),
     "TOGGLE": ("MTS-103 ON-OFF-ON", "C1788493", "SW-TH_MT-0-103-A101-M200-RS", "MT-0-103-A101-M200-RS+PJ", True, 0),
+    "IO": ("DB125-3.5-8P-GN-S", "C5184954", "CONN-TH_8P-P3.50_DORABO_DB125-3.5-8P-GN-S", "DB125-3.5-8P-GN-S", True, 0),
     "R5K1": ("5k1", "C25905", "R0402", "0402WGF5101TCE", False, 0),
     "R10K": ("10k", "C25744", "R0402", "0402WGF1002TCE", False, 0),
+    "R4K7": ("4k7", "C25900", "R0402", "0402WGF4701TCE", False, 0),
     "R100K": ("100k", "C25741", "R0402", "0402WGF1003TCE", False, 0),
     "R100": ("100R", "C25076", "R0402", "0402WGF1000TCE", False, 0),
     "R330": ("330R", "C25104", "R0402", "0402WGF3300TCE", False, 0),
@@ -64,7 +66,8 @@ MFR = {
     "SW": ("XKB Connection", "TS-1187A-B-A-B"), "LED": ("Worldsemi", "WS2812B-2020-V6"),
     "RELAY": ("Hongfa", "HF46F/5-HS1"), "FET": ("Alpha & Omega", "AO3400A"),
     "DIODE": ("Semtech", "1N4148W"), "TERM": ("Cixi Kefa", "KF128-5.08-2P-AA"),
-    "TOGGLE": ("Yuen Fung", "MT-0-103-A101-M200-RS"),
+    "TOGGLE": ("Yuen Fung", "MT-0-103-A101-M200-RS"), "IO": ("DORABO", "DB125-3.5-8P-GN-S"),
+    "R4K7": ("UNI-ROYAL", "0402WGF4701TCE"),
     "R5K1": ("UNI-ROYAL", "0402WGF5101TCE"), "R10K": ("UNI-ROYAL", "0402WGF1002TCE"),
     "R100K": ("UNI-ROYAL", "0402WGF1003TCE"), "R100": ("UNI-ROYAL", "0402WGF1000TCE"),
     "R330": ("UNI-ROYAL", "0402WGF3300TCE"), "C100N": ("Samsung", "CL05B104KO5NNNC"),
@@ -84,7 +87,8 @@ BODY = {"ESP32": (-7.7, -12.8, 7.7, 7.7),
         "JST5": (-3.9, -2.79, 3.9, 3.16),      # tabs x +-3.9, signal pads to y -2.79, housing front 2.83
         "TERM": (-5.08, -5.4, 5.08, 5.3),
         "RELAY": (-10.4, -3.6, 10.5, 3.6),
-        "TOGGLE": (-6.5, -4.0, 6.5, 4.0)}
+        "TOGGLE": (-6.5, -4.0, 6.5, 4.0),
+        "IO": (-14.0, -3.9, 14.0, 3.5)}         # wire openings on the +y side
 # The antenna strip of the module, in footprint coordinates (above the top pad row).
 ESP32_ANTENNA = (-7.7, -12.8, 7.7, -7.75)
 

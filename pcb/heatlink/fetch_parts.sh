@@ -16,8 +16,10 @@ PARTS=(
   C81598    # DIODE (1N4148W)
   C474952   # TERM (KF128-5.08-2P-AA)
   C1788493  # TOGGLE (MT-0-103-A101-M200-RS, ON-OFF-ON)
+  C5184954  # IO (DB125-3.5-8P-GN-S, 8-way 3.5 mm screw terminal)
   C25905    # R5K1
   C25744    # R10K
+  C25900    # R4K7 (I2C pull-ups on the IO terminal)
   C25104    # R330 (LED data series resistor)
   C25076    # R100 (relay FET gate)
   C25741    # R100K (relay FET gate pull-down)

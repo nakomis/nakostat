@@ -11,6 +11,8 @@ Decided with Martin (30 Oct 2026):
 - The relay and the switch are parts PCBWay can assemble.
 - The status LED is a WS2812B-2020, as on tinycrypt.
 - A PG7 gland brings the boiler cable in, at the end of the board with the mains terminals.
+- An 8-way IO terminal block along one long edge (1 Nov 2026), with power and five spare GPIOs, so
+  that the boards not used as heatlinks are reusable as general Wi-Fi relay and IO boards.
 
 ## Blocks
 
@@ -29,7 +31,8 @@ Decided with Martin (30 Oct 2026):
 | Override switch | Yuen Fung MT-0-103 (MTS-103) | C1788493 | ON-OFF-ON toggle, M6 bushing through the lid, PC pins |
 | Button | TS-1187A-B-A-B | C318884 | BOOT (GPIO0), for recovery only |
 | Status LED | WS2812B-2020-V6 | C52917434 | Beside the toggle, under a light pipe |
-| Passives | 0402/0603 | — | As tinycrypt, plus the gate resistors (100 Ω, 100k) and the switch pull-ups |
+| IO terminal | DORABO DB125-3.5-8P-GN-S | C5184954 | 8-way 3.5 mm screw terminal, 300 V 10 A, 8.6 mm tall |
+| Passives | 0402/0603 | — | As tinycrypt, plus the gate resistors (100 Ω, 100k), the switch pull-ups and the I²C pull-ups (4.7k) |
 
 ## Circuit
 
@@ -48,6 +51,17 @@ Decided with Martin (30 Oct 2026):
 - **LED:** GPIO 15 → 330 Ω → DIN, powered from 3V3.
 - **Button:** GPIO 0 → GND, with a 10k pull-up.
 - **Debug pads (TP1):** EN, RX, TX, G, 3V3, as on tinycrypt.
+- **IO terminal (J3):** for reuse; the heatlink firmware doesn't use it.
+
+  | Terminal | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+  |---|---|---|---|---|---|---|---|---|
+  | Signal | 5V | GND | 3V3 | SDA (GPIO 1) | SCL (GPIO 2) | GPIO 4 | GPIO 5 | GPIO 6 |
+
+  - 5V is VBUS after the polyfuse. It sits at the end, next to GND, so a stray strand from it can
+    only reach GND, and the fuse limits that. 3V3 next to a GPIO does no harm.
+  - SDA and SCL have 4.7k pull-ups to 3V3. All five GPIOs are ADC1 pins and go straight to the
+    module, as on a dev board: no series resistors. The chip's own ESD diodes (about 2 kV) are
+    the only protection, so don't run long cables from it to anything outside the case.
 
 ## Mains safety
 
@@ -80,13 +94,15 @@ the USB charger. The board keeps the two apart:
 
 ## Board
 
-- **Size and stack:** 66 × 30 mm, 2 layers, 1.6 mm FR-4, ENIG finish, black mask, white silk.
+- **Size and stack:** 66 × 38 mm, 2 layers, 1.6 mm FR-4, ENIG finish, black mask, white silk.
   Every part is on the top.
 - **Layout:**
   - At x = 0, the gland end: J2 with its openings facing the gland, then the relay with its contacts
     towards J2.
   - In the middle: the relay driver, the BOOT button, the toggle with the LED beside it, then the
     USB socket on the long edge with its fuse, TVS, regulator and ESD.
+  - Along the long edge opposite the USB socket, on the low-voltage side: J3, in an 8 mm strip,
+    with its wire openings facing the edge. Its end pin keeps the 8 mm from the relay's contacts.
   - At the far end: the module, with its antenna **overhanging the x = 66 edge by 5.05 mm**
     (intentional, and marked on Dwgs.User). That keeps the antenna as far from the relay and the
     mains as the board allows.
@@ -105,8 +121,9 @@ the USB charger. The board keeps the two apart:
   - **What's kept clear:** stitching vias avoid his white fur, no via sits under the text, and there
     are no pixels over through-hole pads or H3's ring.
 - **Heights above the board** (for the case): toggle bushing top 18.1 mm, with the lever another
-  10.5 mm above that. Relay 15.3 mm, terminal block 14.1 mm, module 2.4 mm. The case lid needs a
-  pocket around the toggle, so the M6 bushing comes through it with room for the nut.
+  10.5 mm above that. Relay 15.3 mm, terminal block 14.1 mm, IO terminal 8.6 mm, module 2.4 mm. The case lid needs a
+  pocket around the toggle, so the M6 bushing comes through it with room for the nut, and a slot
+  in the side wall over J3's openings, with room for a screwdriver above it.
 
 ## Pins (for the firmware)
 
@@ -121,6 +138,8 @@ the USB charger. The board keeps the two apart:
 | BOOT button | 0 |
 | USB D− / D+ | 19 / 20 |
 | UART0 TX / RX (debug pads) | 43 / 44 |
+| IO terminal SDA / SCL (4.7k pull-ups) | 1 / 2 |
+| IO terminal GPIOs | 4, 5, 6 |
 
 ## Not on this board
 

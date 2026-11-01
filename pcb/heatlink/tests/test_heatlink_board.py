@@ -141,7 +141,7 @@ def test_pins_h_defines_the_gpio_numbers():
 # ---------------------------------------------------------------- placement
 
 def test_board_size_and_outline():
-    assert (hb.W, hb.L) == (30, 66)
+    assert (hb.W, hb.L) == (38, 66)            # 30 mm plus the 8 mm IO strip
     assert P.outline == (0.0, 0.0, hb.L, hb.W)
     assert set(P.at) == set(C.instances)
 
@@ -411,7 +411,7 @@ def test_pcbway_bom_marks_through_hole_parts(tmp_path):
     write_bom_pcbway(C, tmp_path / "bom.csv")
     rows = list(csv.DictReader(open(tmp_path / "bom.csv")))
     tht = {r for row in rows if row["Type"] == "THT" for r in row["Designator"].split(",")}
-    assert tht == {"K1", "J2", "SW2"}
+    assert tht == {"K1", "J2", "J3", "SW2"}
     qty = {r["Mfg Part #"]: int(r["Qty"]) for r in rows}
     for key in ("R10K", "C100N", "C10U", "R100", "R100K"):
         want = sum(1 for i in C.instances.values() if i.part.key == key)
@@ -421,3 +421,47 @@ def test_pcbway_bom_marks_through_hole_parts(tmp_path):
 def hb_mpn(key):
     from board.parts import MFR
     return MFR[key][1]
+
+
+# ---------------------------------------------------------------- IO terminal (J3)
+
+def test_io_terminal_pinout():
+    """5V at one end beside GND, so a stray strand from 5V reaches only GND; 3V3 next; then the
+    five GPIOs, straight to the module."""
+    j3 = C.instances["J3"]
+    nets = [C.net_of("J3", str(n)) for n in range(1, 9)]
+    assert nets == ["VBUS", "GND", "+3V3", "IO_SDA", "IO_SCL", "IO_4", "IO_5", "IO_6"]
+    assert j3.part.key == "IO"
+    for k in ("IO_SDA", "IO_SCL", "IO_4", "IO_5", "IO_6"):
+        pads = C.instances["U1"].part.pins[hb.modpin(hb.GPIO[k])]
+        assert [C.net_of("U1", n) for n in pads] == [k] * len(pads)
+        assert 1 <= hb.GPIO[k] <= 10                   # ADC1, and no strapping pin
+        assert hb.GPIO[k] != 3
+
+
+def test_io_gpios_are_free():
+    used = [v for k, v in hb.GPIO.items()]
+    assert len(used) == len(set(used))
+
+
+def test_i2c_pull_ups():
+    for ref, net in (("R4", "IO_SDA"), ("R5", "IO_SCL")):
+        assert C.instances[ref].part.key == "R4K7"
+        assert {C.net_of(ref, "1"), C.net_of(ref, "2")} == {net, "+3V3"}
+
+
+def test_io_terminal_in_strip_clear_of_mains():
+    x, y, rot = hb.AT["J3"]
+    x0, y0, x1, y1 = C.instances["J3"].part.body
+    # rotated 180: openings (body +y) face the y = 0 edge
+    assert rot == 180 and y - y1 >= 0 and y - y0 <= hb.IO_W
+    assert x - x1 > hb.MAINS_X
+    for n in range(1, 9):
+        px, py = hb.pad_xy("J3", str(n), C)
+        assert px - 1.1 >= hb.MAINS_X
+
+
+def test_pins_h_has_io_pins():
+    h = hb.pins_h()
+    for k in ("IO_SDA", "IO_SCL", "IO_4", "IO_5", "IO_6"):
+        assert f"#define HL_PIN_{k} {hb.GPIO[k]}" in h

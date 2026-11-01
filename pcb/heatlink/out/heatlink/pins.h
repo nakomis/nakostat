@@ -14,3 +14,10 @@
 #define HL_PIN_USB_DP 20
 #define HL_PIN_UART_TX 43
 #define HL_PIN_UART_RX 44
+
+/* IO terminal J3: 5V, G, 3V3, SDA, SCL, 4, 5, 6 (SDA/SCL have 4.7k pull-ups). */
+#define HL_PIN_IO_SDA 1
+#define HL_PIN_IO_SCL 2
+#define HL_PIN_IO_4 4
+#define HL_PIN_IO_5 5
+#define HL_PIN_IO_6 6

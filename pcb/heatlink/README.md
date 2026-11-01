@@ -1,7 +1,8 @@
 # Nakostat heatlink board (STAT-75)
 
 The heatlink on one board: an ESP32-S3-MINI-1 module, a relay on the boiler's 230 V
-`ROOM STAT/TIMER` pair, the 3-way override toggle and a WS2812B status LED. It is powered over the
+`ROOM STAT/TIMER` pair, the 3-way override toggle, a WS2812B status LED, and an 8-way IO terminal
+(power, I²C and three GPIOs) that makes spare boards reusable. It is powered over the
 house USB cable. The board is generated in code, from the circuit through to the gerbers, using
 tinycrypt's pipeline. `DESIGN.md` covers the parts, the circuit and the mains safety rules.
 
@@ -41,13 +42,13 @@ The same files work for both fabs. Only the BOM differs.
 | Placement | `cpl.csv` | same |
 
 - 2 layers, 1.6 mm, **ENIG**, **black** mask, white silkscreen.
-- Assembly is top side only. Three parts are through-hole: K1 (relay), J2 (terminal block) and SW2
-  (toggle switch).
+- Assembly is top side only. Four parts are through-hole: K1 (relay), J2 and J3 (terminal blocks)
+  and SW2 (toggle switch).
 - The module's antenna **overhangs the board edge by 5.05 mm on purpose**. If the engineering
   review asks, say the overhang is intended.
 - The board carries 230 V between J2 and the relay contacts. There is no ground pour in that area,
   and it is marked on both silkscreens.
-- Check the rotations of U1, J1, J2, K1 and SW2 in the fab's placement preview.
+- Check the rotations of U1, J1, J2, J3, K1 and SW2 in the fab's placement preview.
 
 ## Before the first power-up
 

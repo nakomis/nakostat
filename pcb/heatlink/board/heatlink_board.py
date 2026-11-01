@@ -6,7 +6,8 @@ Board frame (KiCad, y down): x 0..L, y 0..W. The mains end is x = 0 (it faces th
 the boiler terminals and the relay contacts are there, inside MAINS_X. Everything else is low
 voltage and keeps 8 mm from mains copper (board/kicad_pcb.py DRU). The module sits at the other
 end with its antenna overhanging the x = L edge, as far from the relay and the mains as the
-board allows.
+board allows. A strip IO_W deep along the y = 0 edge of the low-voltage side carries J3, an
+8-way screw terminal with power and five spare GPIOs, so that the spare boards are reusable.
 """
 import math
 
@@ -19,9 +20,10 @@ from board.placement import Placement, rotate
 
 HERE = Path(__file__).resolve().parent.parent
 
-W = 30.0
+IO_W = 8.0                             # the IO terminal strip along y = 0
+W = 30.0 + IO_W
 L = 66.0
-CY = W / 2
+CY = IO_W + 15.0                       # the module's centre line
 MOD_ROT = 270                          # antenna (footprint -y) towards +x
 MOD_X = L + ESP32_ANTENNA[3]           # 58.25: the antenna strip begins on the x = L edge
 ANTENNA = -ESP32_ANTENNA[1] + ESP32_ANTENNA[3]   # 5.05 mm of overhang
@@ -33,7 +35,7 @@ MAINS_X = 28.5                         # low-voltage copper stays right of this 
 # an octal pin (47/48). At reset every one of them is an input, so the relay FET's 100k
 # pull-down holds the relay off until the firmware drives it.
 GPIO = {"RELAY": 12, "SW_ON": 13, "SW_OFF": 14, "LED": 15, "BUTTON": 0, "USB_DM": 19, "USB_DP": 20,
-        "UART_TX": 43, "UART_RX": 44}
+        "UART_TX": 43, "UART_RX": 44, "IO_SDA": 1, "IO_SCL": 2, "IO_4": 4, "IO_5": 5, "IO_6": 6}
 _MODPIN = {43: "TXD0", 44: "RXD0"}
 
 
@@ -50,6 +52,12 @@ J2_PINS = {"2": "MAINS_L", "1": "MAINS_SL"}
 J2_LABELS = {"2": "L", "1": "SL"}
 DEBUG_PINS = {"1": "EN", "2": "UART_RX", "3": "UART_TX", "4": "GND", "5": "+3V3"}
 DEBUG_LABELS = {"1": "EN", "2": "RX", "3": "TX", "4": "G", "5": "3V3"}
+# J3 (IO terminal, for reuse): 5V at one end, so a stray strand from it can reach only GND (and
+# the PTC limits that); 3V3 beside a GPIO does no harm. SDA/SCL have 4.7k pull-ups to 3V3. The
+# GPIOs go straight to the module, as on a dev board. All five are ADC1 pins.
+IO_PINS = {"1": "VBUS", "2": "GND", "3": "+3V3", "4": "IO_SDA", "5": "IO_SCL", "6": "IO_4", "7": "IO_5",
+           "8": "IO_6"}
+IO_LABELS = {"1": "5V", "2": "G", "3": "3V3", "4": "SDA", "5": "SCL", "6": "4", "7": "5", "8": "6"}
 
 
 def build_heatlink():
@@ -68,6 +76,7 @@ def build_heatlink():
     d2 = c.add("TVS", "D2")
     d3 = c.add("DIODE", "D3")
     tp = c.add("DEBUG", "TP1")
+    j3 = c.add("IO", "J3")
     for ref in ("H1", "H2"):
         c.add("MHN", ref)
     for ref in ("H3", "H4"):
@@ -154,6 +163,15 @@ def build_heatlink():
     for pad, net in DEBUG_PINS.items():
         c.connect(net, (tp, pad))
 
+    # IO terminal: power, I2C (4.7k pull-ups) and three more GPIOs.
+    for pad, net in IO_PINS.items():
+        c.connect(net, (j3, pad))
+    for k in ("IO_SDA", "IO_SCL", "IO_4", "IO_5", "IO_6"):
+        c.connect(k, (u1, modpin(GPIO[k])))
+    for ref, net in (("R4", "IO_SDA"), ("R5", "IO_SCL")):
+        c.connect(net, (c.add("R4K7", ref), "1"))
+        c.connect(v33, (c.instances[ref], "2"))
+
     # Mounting holes: the two on the low-voltage side are plated, on GND; the two in the mains
     # area are unplated and have no copper.
     c.connect(gnd, (c.instances["H3"], "1"), (c.instances["H4"], "1"))
@@ -165,8 +183,8 @@ def build_heatlink():
 # side, two unplated holes. Low-voltage side: the relay driver beside the coil, the button, the
 # toggle (through the lid) with the LED beside it (a light pipe in the lid), the USB socket on
 # the y = W edge with its protection and the regulator, then the module.
-AT = {
-    "U1": (MOD_X, CY, MOD_ROT),
+_AT = {          # in the 30 mm frame of the board below the IO strip; AT shifts it down by IO_W
+    "U1": (MOD_X, 15.0, MOD_ROT),
     "H1": (3.5, 3.5, 0), "H2": (3.5, 26.5, 0), "H3": (62.5, 3.5, 0), "H4": (62.5, 26.5, 0),
     "J2": (6.5, 17.0, 90), "K1": (22.0, 6.5, 180),
     # relay driver, beside the coil pads (x 31.25)
@@ -179,10 +197,15 @@ AT = {
     # power in: PTC, TVS, regulator and its caps, USB socket and ESD
     "C1": (30.5, 23.0, 90), "U2": (33.5, 23.0, 0), "C2": (36.5, 22.5, 90), "C3": (36.5, 25.5, 90),
     "D2": (33.0, 26.2, 0), "F1": (33.0, 28.6, 0), "R1": (45.6, 22.6, 90),
-    "J1": (42.0, round(W - 3.21, 2), 0), "U3": (42.0, 22.0, 0),
+    "J1": (42.0, round(30.0 - 3.21, 2), 0), "U3": (42.0, 22.0, 0),
     # EN RC and the debug pads, below the module
     "R2": (57.5, 24.3, 0), "C6": (55.5, 24.3, 0), "TP1": (53.0, 27.3, 270),
 }
+AT = {r: (x, round(y + IO_W, 4), rot) for r, (x, y, rot) in _AT.items()}
+# The top corner holes stay in the corners; J3 lies in the strip with its openings facing y = 0,
+# clear of the mains area (its end pad keeps 8 mm from the relay's contact copper) and of H3.
+AT.update({"H1": (3.5, 3.5, 0), "H3": (62.5, 3.5, 0), "J3": (44.0, 4.0, 180),
+           "R4": (58.6, 10.2, 0), "R5": (61.0, 10.2, 0)})
 
 
 def place_heatlink(circuit):
@@ -243,7 +266,8 @@ def mains_hand_route():
     _KEY.update({"J2": "TERM", "K1": "RELAY"})
     jl, jsl = pad_xy("J2", "2"), pad_xy("J2", "1")
     k4, k3 = pad_xy("K1", "4"), pad_xy("K1", "3")
-    t = _segments("MAINS_L", "F.Cu", [jl, (jl[0], 11.0), (k4[0], 11.0 - (k4[0] - jl[0])), k4], MAINS_W)
+    yt = 11.0 + IO_W
+    t = _segments("MAINS_L", "F.Cu", [jl, (jl[0], yt), (k4[0], yt - (k4[0] - jl[0])), k4], MAINS_W)
     t += _segments("MAINS_SL", "F.Cu", [jsl, (k3[0], jsl[1]), k3], MAINS_W)
     return t, []
 
@@ -253,10 +277,10 @@ CREDIT = "Designed by Nakomis/C"
 CAT = "Chi"
 ART_PNG = HERE / "art" / "chi.png"
 ART_PX = 0.16                         # mm per pixel: 150 x 123 px -> 24.0 x 19.7 mm
-ART_X, ART_TOP = 35.0, 0.8            # top-view position of the portrait's top-left corner
+ART_X, ART_TOP = 35.0, 0.8 + IO_W           # top-view position of the portrait's top-left corner
 HOLE_CLEAR = 3.0 + 0.25               # no silk over H3's plated ring
 BACK_TEXT_X = 47.0                    # centre of the back text, under the portrait
-BACK_TEXT = ((CAT, 1.2, 22.0), (CREDIT, 1.0, 24.0), (TITLE, 1.0, 25.8))
+BACK_TEXT = ((CAT, 1.2, 22.0 + IO_W), (CREDIT, 1.0, 24.0 + IO_W), (TITLE, 1.0, 25.8 + IO_W))
 
 
 def art_heatlink():
@@ -297,8 +321,13 @@ def silk(circuit, placement):
     for n, text in J2_LABELS.items():
         x, y = pad_xy("J2", n)
         out.append((text, round(x - 3.6, 3), round(y, 3), 1.2))
-    out += [("230 V", 17.0, 14.5, 2.0), ("MAINS", 17.0, 17.5, 1.5),
-            ("230 V MAINS", 13.0, 24.0, 1.5, "B.SilkS")]
+    out += [("230 V", 17.0, 14.5 + IO_W, 2.0), ("MAINS", 17.0, 17.5 + IO_W, 1.5),
+            ("230 V MAINS", 13.0, 24.0 + IO_W, 1.5, "B.SilkS")]
+    # J3's labels, on both sides: behind the terminal on the front, beside its pins on the back
+    for n, text in IO_LABELS.items():
+        x, y = pad_xy("J3", n)
+        out.append((text, round(x, 3), round(y + 4.6, 3), 0.8))
+        out.append((text, round(x, 3), round(y + 2.4, 3), 0.9, "B.SilkS"))
     for n, text in J1_LABELS.items():
         x, y = pad_xy("J1", n)
         out.append((text, round(x, 3), round(y - 1.6, 3), 0.7, "F.SilkS", 90))
@@ -332,7 +361,8 @@ def pad_extra(circuit):
     49 % coverage; Espressif warns that a full thermal pad lifts the module). Every SMD GND pad
     joins the pour solidly rather than through thermal spokes: the parts are reflowed, and the
     small pads (SOT-23, 0402) otherwise get one spoke where tracks hem them in. So do the plated
-    mounting-hole rings, which would otherwise leave the board corners beyond them unjoined."""
+    mounting-hole rings, which would otherwise leave the board corners beyond them unjoined, and
+    J3's GND pin, which the routed tracks otherwise leave on a one-spoke island."""
     from board.sexpr import Sym
 
     def make(ref):
@@ -340,7 +370,7 @@ def pad_extra(circuit):
             extra = []
             if ref == "U1" and pad.number == "GND" and abs(pad.w - 1.2) < 1e-6:
                 extra.append([Sym("solder_paste_margin"), -0.18])
-            if (pad.kind == "smd" or ref in ("H3", "H4")) and circuit.net_of(ref, pad.number) == "GND":
+            if (pad.kind == "smd" or ref in ("H3", "H4", "J3")) and circuit.net_of(ref, pad.number) == "GND":
                 extra.append([Sym("zone_connect"), 2])
             return extra
         return f
@@ -355,6 +385,9 @@ def pins_h():
              "   EN is the chip enable (bridge it to G to reset); RX/TX are UART0. */",
              "/* The relay is active-high (low-side FET), the switch throws are active-low. */", ""]
     for k in ("RELAY", "SW_ON", "SW_OFF", "LED", "BUTTON", "USB_DM", "USB_DP", "UART_TX", "UART_RX"):
+        lines.append(f"#define HL_PIN_{k} {GPIO[k]}")
+    lines += ["", "/* IO terminal J3: " + ", ".join(IO_LABELS.values()) + " (SDA/SCL have 4.7k pull-ups). */"]
+    for k in ("IO_SDA", "IO_SCL", "IO_4", "IO_5", "IO_6"):
         lines.append(f"#define HL_PIN_{k} {GPIO[k]}")
     return "\n".join(lines) + "\n"
 
@@ -476,12 +509,20 @@ def _seg_seg_dist(ax, ay, bx, by, t):
 
 
 def under_back_text(x, y, r=0.5):
-    """True if a via at (x, y) would touch the back text (a tented via still shows through it)."""
-    for t, size, ty in BACK_TEXT:
+    """True if a via at (x, y) would touch the back text or J3's labels (front or back: a tented
+    via still shows through silk)."""
+    texts = [(t, size, BACK_TEXT_X, ty) for t, size, ty in BACK_TEXT]
+    for n, t in IO_LABELS.items():
+        px, py = AT["J3"][0] - IO_PITCH * (int(n) - 4.5), AT["J3"][1]
+        texts += [(t, 0.8, px, py + 4.6), (t, 0.9, px, py + 2.4)]
+    for t, size, tx, ty in texts:
         w, h = 0.86 * size * len(t) + 0.15, 1.2 * size
-        if abs(x - BACK_TEXT_X) <= w / 2 + r and abs(y - ty) <= h / 2 + r:
+        if abs(x - tx) <= w / 2 + r and abs(y - ty) <= h / 2 + r:
             return True
     return False
+
+
+IO_PITCH = 3.5          # J3's pin pitch; pin 1 is at the +x end (the part is rotated 180)
 
 
 def back_text_boxes(r=0.1):
