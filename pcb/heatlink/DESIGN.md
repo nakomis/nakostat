@@ -141,6 +141,9 @@ the USB charger. The board keeps the two apart:
   pocket around the toggle, so the M6 bushing comes through it with room for the nut, and a slot
   in the side wall over J3's openings, with room for a screwdriver above it, and a slot in the lid
   over J4 for the ribbon cable (or a removable panel, for the heatlink, which doesn't use it).
+  The lid also needs a vent over U2, the 3.3 V regulator, at (33.5, 42.0) mm from the mains-end
+  corner, the dashed ring in `KEY.md`. It dissipates about 0.2 W on average and 0.6 W in Wi-Fi
+  bursts.
 
 ## Pins (for the firmware)
 
@@ -175,8 +178,9 @@ An independent review before ordering found no blockers and nothing that needs a
   - D2's cathode is on VBUS.
 - **Margins** (documented in README, with no change):
   - The AP2112K at θJA about 184 °C/W runs about +40 K at the heatlink's average load.
-  - F1's 500 mA hold derates in a warm cupboard. Both are fine for the heatlink, but they limit
-    what J3/J4 can power.
+  - F1's 500 mA hold derates as it warms. Both are fine for the heatlink, which is wall-mounted
+    beside the boiler rather than in a cupboard, but they limit what J3/J4 can power.
+  - U2 is the warmest part, so the case has a vent above it (see `KEY.md`).
 - **Mains spacing measured on the board:**
   - Nearest low-voltage copper: 9.0 mm. The GND pour is exactly 8.00 mm from K1.3.
   - L to SL: 2.68 mm minimum.
