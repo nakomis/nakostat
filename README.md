@@ -11,6 +11,9 @@ If you find this useful, please consider buying me a coffee:
 
 A DIY smart thermostat built after the Nest thermostat and Heatlink both failed. Replaces both with a Raspberry Pi touch-screen UI, an ESP32 boiler relay controller, AWS IoT Core, and an Alexa thermostat skill.
 
+The heatlink's circuit boards ([`pcb/heatlink/`](pcb/heatlink/)) were manufactured and assembled by
+[PCBWay](https://www.pcbway.com), who sponsored the first batch.
+
 ## Hardware
 
 | Device | Role |

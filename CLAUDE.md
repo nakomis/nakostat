@@ -8,6 +8,7 @@ Read these only when the conversation turns to that area:
 
 - **Pi UI** (Rust/egui, touch dial): `embedded/pi/CLAUDE.md`
 - **Heatlink firmware** (ESP-IDF, relay, switch, Fleet OTA): `embedded/esp32/heatlink/README.md`
+- **Heatlink PCB** (code-generated KiCad, mains spacing rules, PCBWay/JLCPCB files): `pcb/heatlink/README.md`, `pcb/heatlink/DESIGN.md`
 - **Infrastructure** (AWS CDK, IoT Core, DynamoDB, API): the design spec in `docs/superpowers/specs/`; Alexa skill setup: `docs/alexa-setup.md`
 
 ## Always apply
@@ -74,7 +75,7 @@ nakostat/
 │   └── esp32/heatlink/   ESP-IDF firmware for the boiler heatlink
 ├── githooks/    Git hooks (drawio→svg, README TOC)
 ├── infra/       AWS CDK stacks
-├── pcb/         PCB (Phase 2: generated in code, tinycrypt pipeline)
+├── pcb/heatlink/ Heatlink PCB (Phase 2: generated in code, tinycrypt pipeline)
 ├── scripts/     Helper scripts
 └── web/         React SPA — nakostat.nakomis.com dashboard
 ```
