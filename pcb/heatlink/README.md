@@ -38,6 +38,13 @@ It writes the fab files only when KiCad's DRC reports no errors and no unconnect
 checks include the 8 mm mains spacing. `--step` also fetches the 3D models and writes
 `nakostat-heatlink.step` and a 3D render, which the case design needs.
 
+## Made by PCBWay (sponsored)
+
+The first five boards (November 2026) were manufactured and assembled by
+[PCBWay](https://www.pcbway.com), who sponsored the build: they covered the boards, the parts and the
+assembly. The files here aren't tied to them; the same gerbers and placement file, with
+`bom-jlcpcb.csv`, also work at JLCPCB.
+
 ## Ordering
 
 The same files work for both fabs. Only the BOM differs.
