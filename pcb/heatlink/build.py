@@ -3,7 +3,7 @@
 
     ./.venv/bin/python build.py [--route] [--step] [--passes N]
 
-Output goes to out/heatlink/, plus KEY.md here. Fab outputs (gerbers zip, BOMs, CPL, renders, the
+Output goes to out/heatlink/, plus docs/heatlink-board-key.md at the repo root. Fab outputs (gerbers zip, BOMs, CPL, renders, the
 labelled key diagram, pins.h) are written
 only when DRC has no errors and no unconnected items. DRC includes the mains spacing rules in
 the board's .kicad_dru (board/kicad_pcb.py)."""
@@ -15,6 +15,7 @@ from pathlib import Path
 from board import heatlink_board as hb
 from board.cleanup import prune
 from board.fab import export_step, fab, write_bom, write_bom_pcbway, write_cpl
+from board import key
 from board.key import write_key
 from board.kicad_pcb import write_board
 from board.netlist import check
@@ -96,7 +97,7 @@ def main():
     write_cpl(c, p, out / "cpl.csv")
     (out / "pins.h").write_text(hb.pins_h())
     fab(board, out, layers=LAYERS)
-    write_key(out, STEM, HERE)
+    write_key(out, STEM, key.DOC)
     if a.step:
         subprocess.run([str(HERE / "fetch_models.sh")], check=True)     # resumable, skips fetched parts
         print(f"STEP: {export_step(board, out)}")

@@ -6,9 +6,9 @@ reusable, an 8-way IO terminal (power, I²C and three GPIOs) and a 16-way IDC he
 house USB cable. The board is generated in code, from the circuit through to the gerbers, using
 tinycrypt's pipeline. `DESIGN.md` covers the parts, the circuit and the mains safety rules.
 
-[![The heatlink board with numbered parts](out/heatlink/nakostat-heatlink-key.png)](KEY.md)
+[![The heatlink board with numbered parts](out/heatlink/nakostat-heatlink-key.png)](../../docs/heatlink-board-key.md)
 
-**[KEY.md](KEY.md)** explains what every numbered part does, and why it's there. The dashed orange
+**[The component key](../../docs/heatlink-board-key.md)** explains what every numbered part does, and why it's there. The dashed orange
 ring marks where the case needs a vent: above the 3.3 V regulator (U2), the warmest part.
 
 ## Build
@@ -31,7 +31,7 @@ mkdir -p freerouting && cp <somewhere>/freerouting-2.5.0.jar freerouting/   # Ja
 - `nakostat-heatlink-gerbers.zip`
 - the top and bottom renders
 - `pins.h`
-- `nakostat-heatlink-key.png` and `KEY.md` (the text lives in `board/key.py`; after editing it,
+- `nakostat-heatlink-key.png` and `docs/heatlink-board-key.md` (the text lives in `board/key.py`; after editing it,
   `.venv/bin/python -m board.key` redraws both from the existing render without a rebuild)
 
 It writes the fab files only when KiCad's DRC reports no errors and no unconnected items. Those

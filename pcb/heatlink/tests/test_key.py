@@ -1,4 +1,4 @@
-"""The board key (board/key.py): every part has an entry, and the diagram and KEY.md are built
+"""The board key (board/key.py): every part has an entry, and the diagram and the markdown key are built
 from the placement."""
 from PIL import Image
 
