@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Board generator: circuit -> placement -> (route) -> board + DRC -> fab outputs.
 
-    ./.venv/bin/python build.py [--route] [--step] [--passes N]
+    ./.venv/bin/python build.py [--route] [--step] [--passes N] [--out DIR]
 
-Output goes to out/heatlink/, plus docs/heatlink-board-key.md at the repo root. Fab outputs (gerbers zip, BOMs, CPL, renders, the
-labelled key diagram, pins.h) are written
+Output goes to out/heatlink/, plus docs/heatlink-board-key.md at the repo root. These are the files
+that were ordered, and Freerouting doesn't route the same way twice, so a rebuild changes them;
+--out DIR writes everything (the key doc too) to DIR instead, leaving them alone. Fab outputs
+(gerbers zip, BOMs, CPL, renders, the labelled key diagram, pins.h) are written
 only when DRC has no errors and no unconnected items. DRC includes the mains spacing rules in
 the board's .kicad_dru (board/kicad_pcb.py)."""
 import argparse
@@ -22,6 +24,7 @@ from board.netlist import check
 from board.route import route
 
 HERE = Path(__file__).resolve().parent
+OUT = HERE / "out" / "heatlink"
 KICAD_CLI = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
 
 # Gerbers carry no colour; this only makes the KiCad renders match the order.
@@ -51,8 +54,11 @@ def main():
     ap.add_argument("--passes", type=int, default=100)
     ap.add_argument("--step", action="store_true",
                     help="also fetch the 3D models and write the STEP model and a 3D render")
+    ap.add_argument("--out", type=Path, default=OUT,
+                    help="output directory (default out/heatlink, the ordered build)")
     a = ap.parse_args()
-    out = HERE / "out" / "heatlink"
+    out = a.out.resolve()
+    doc = key.DOC if out == OUT else out / key.DOC.name
     tmp = out / "tmp"
     tmp.mkdir(parents=True, exist_ok=True)
     c = hb.build_heatlink()
@@ -97,7 +103,7 @@ def main():
     write_cpl(c, p, out / "cpl.csv")
     (out / "pins.h").write_text(hb.pins_h())
     fab(board, out, layers=LAYERS)
-    write_key(out, STEM, key.DOC)
+    write_key(out, STEM, doc)
     if a.step:
         subprocess.run([str(HERE / "fetch_models.sh")], check=True)     # resumable, skips fetched parts
         print(f"STEP: {export_step(board, out)}")
