@@ -159,6 +159,39 @@ the USB charger. The board keeps the two apart:
 | IO terminal GPIOs | 4, 5, 6 |
 | IDC header GPIOs | 7, 8, 9, 10, 11, 16, 17, 18, 21, 38, 39, 40 |
 
+## Pre-order review (4 Nov 2026)
+
+An independent review before ordering found no blockers and nothing that needs a board change:
+
+- **Circuit:**
+  - The shared blocks match tinycrypt's working board. The new parts here are F1, D2 and the relay
+    driver.
+  - The AO3400A is fully on at a 3.3 V gate. Worst-case coil voltage is about 4.1 V, against the
+    HF46F's 3.75 V must-operate.
+  - The relay stays off from reset, because GPIO 12 isn't a strapping pin and R8 holds the gate.
+  - No strapping pins or flash pins are used. GPIO 39/40 on J4 are JTAG pads only if eFuses select
+    them.
+  - USB D−/D+ go to GPIO 19/20.
+  - D2's cathode is on VBUS.
+- **Margins** (documented in README, with no change):
+  - The AP2112K at θJA about 184 °C/W runs about +40 K at the heatlink's average load.
+  - F1's 500 mA hold derates in a warm cupboard. Both are fine for the heatlink, but they limit
+    what J3/J4 can power.
+- **Mains spacing measured on the board:**
+  - Nearest low-voltage copper: 9.0 mm. The GND pour is exactly 8.00 mm from K1.3.
+  - L to SL: 2.68 mm minimum.
+  - Mains to the board edge: at least 5.25 mm. Mains to holes: at least 4.78 mm.
+  - The relay's pad-edge gap between coil and contacts is 9.6 mm, and LCSC lists the HF46F as
+    meeting VDE 0631 reinforced insulation.
+  - 8 mm meets the reinforced creepage requirement at pollution degree 2 with margin, so a slot
+    wouldn't help.
+- **Footprints:**
+  - The relay's 7.0 mm contact pitch and Ø1.1 holes are as specified.
+  - The toggle's slots (1.2 × 2.5 mm) suit its 0.8 × 2.0 mm pins, checked against Yuen Fung's
+    drawing.
+  - The pins of the LED and J4 are right.
+  - J2/J3's holes (Ø1.6/1.4) are generous, which suits hand-soldered through-hole parts.
+
 ## Not on this board
 
 - **No mains power supply.** Power comes over USB.

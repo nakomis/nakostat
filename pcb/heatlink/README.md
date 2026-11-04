@@ -58,3 +58,13 @@ The same files work for both fabs. Only the BOM differs.
   (`docs/heatlink-prototype-wiring.md`): the relay should click on demand, and the toggle should
   override it.
 - **Wire the boiler with the power off at the spur.** L and SL go to J2 in place of the link wire.
+  Fit bootlace ferrules to the flex, and clamp it in the gland so no pull reaches J2.
+- **Use nylon screws in the two mains-end holes (H1, H2).** A metal M3 screw and washer in H2 would
+  sit about 2.9 mm from J2, inside the board's own 3 mm rule.
+- **Use a reputable, certified USB charger.** Its isolation is the real barrier between the mains
+  and everything on the low-voltage side, including J3 and J4.
+- **Keep loads on J3 and J4 small:** about 100 mA from 3V3 and 150 mA from 5V. The 3V3 regulator
+  runs warm at sustained loads, and the 500 mA polyfuse is shared with the relay and the module,
+  so a short on a header's 5V pin drops the heating control until it's removed.
+- **House it in a flame-retardant enclosure** (UL94 V-0, e.g. a bought ABS or PC box, or a V-0
+  filament), not PETG or ASA, because the case holds the 230 V terminals.
