@@ -122,6 +122,8 @@ int hl_status_json(char *out, size_t cap, const hl_status *v)
     put_string(&s, hl_reason_name(v->reason));
     put_raw(&s, ",\"version\":");
     put_string(&s, v->version);
+    put_raw(&s, ",\"board\":");
+    put_string(&s, v->board);
     put_raw(&s, "}");
 
     if (!s.ok)

@@ -30,14 +30,31 @@ heatlink/
 └── esp32s3/           # the IDF project: main/, partitions.csv, sdkconfig.defaults, scripts/
 ```
 
-## GPIO map (ESP32-S3-DevKitC-1 N16R8)
+## Boards
 
-| Signal | GPIO | Kconfig | Notes |
-|---|---|---|---|
-| Relay IN | 4 | `HEATLINK_RELAY_GPIO` | `HEATLINK_RELAY_ACTIVE_LOW` (default y): driven **open-drain**, low = on, released = off through the module's pull-up. Works with a 3.3 V or 5 V module, and the relay is off while the pin floats at boot. Say n for an active-high module (push-pull). |
-| Switch "on" throw | 5 | `HEATLINK_SWITCH_ON_GPIO` | Internal pull-up; the switch's common goes to GND |
-| Switch "off" throw | 6 | `HEATLINK_SWITCH_OFF_GPIO` | Internal pull-up; centre position (neither throw) = **auto** |
-| RGB status LED | 48 | `HEATLINK_LED_GPIO` | The DevKitC's onboard WS2812. **v1.1 boards use 38**: set it in `idf.py menuconfig` |
+One image runs on every board. Each heatlink is provisioned with its board (`provision-device.sh
+--board`), which the firmware reads from the `prov` partition at boot, before it touches a GPIO, and
+looks up in `port/board.c`. So Fleet can't send a heatlink an image built for other pins.
+
+| Board | What |
+|---|---|
+| `devkitc` | The STAT-69 prototype: an ESP32-S3-DevKitC-1 v1.0 and a relay module. Also any heatlink provisioned before the board key existed |
+| `devkitc-v1.1` | The same on a v1.1 DevKitC, whose LED is on GPIO 38 |
+| `pcb-v1` | The STAT-75 board (`pcb/heatlink`) |
+
+A board this image doesn't know (provisioned for a newer image, say) drives no pins: the relay stays
+off, and `/status` says `"board":null`. If the image is new from an update, it rolls back instead.
+To add a board, add it to `port/board.c` and to `BOARDS` in `scripts/provision-device.sh`;
+`tests/test_board.py` checks they match, and that `pcb-v1` matches the board's generated `pins.h`.
+
+## GPIO map: `devkitc` (ESP32-S3-DevKitC-1 N16R8)
+
+| Signal | GPIO | Notes |
+|---|---|---|
+| Relay IN | 4 | Active-low, driven **open-drain**: low = on, released = off through the module's pull-up. Works with a 3.3 V or 5 V module, and the relay is off while the pin floats at boot. |
+| Switch "on" throw | 5 | Internal pull-up; the switch's common goes to GND |
+| Switch "off" throw | 6 | Internal pull-up; centre position (neither throw) = **auto** |
+| RGB status LED | 48 | The DevKitC's onboard WS2812. **v1.1 boards use 38**: board `devkitc-v1.1` |
 
 Avoided: GPIO 35–37 (octal PSRAM), straps 0, 3, 45, 46, USB 19/20 and UART0 43/44. Both throws
 grounded at once can't happen with a working centre-off switch; it reads as **off**.
@@ -45,13 +62,9 @@ grounded at once can't happen with a working centre-off switch; it reads as **of
 Power: a 5 V USB charger into the DevKitC. The relay module's VCC is the DevKitC's 5 V pin, its GND
 to GND, its IN to GPIO 4.
 
-### On the heatlink PCB (`pcb/heatlink`, STAT-75)
+### `pcb-v1`: the heatlink PCB (`pcb/heatlink`, STAT-75)
 
-The board uses other pins and an active-high relay driver; `esp32s3/sdkconfig.board-v1` sets them:
-
-```bash
-idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board-v1" build
-```
+The board uses other pins and an active-high relay driver:
 
 | Signal | GPIO | Notes |
 |---|---|---|
@@ -177,8 +190,9 @@ The app is about 1.0 MB in a 1.875 MB slot (about 53%).
    `esp32s3/certs/nakostat-heatlink/prov.bin`, which is git-ignored and holds the Wi-Fi password and
    private key:
    ```bash
-   AWS_PROFILE=nakom.is-sandbox NPM_ENVIRONMENT=sandbox embedded/esp32/heatlink/scripts/provision-device.sh
+   AWS_PROFILE=nakom.is-sandbox NPM_ENVIRONMENT=sandbox embedded/esp32/heatlink/scripts/provision-device.sh --board devkitc
    ```
+   `--board` is `devkitc`, `devkitc-v1.1` or `pcb-v1` (see [Boards](#boards)).
 3. Flash over the DevKitC's **UART** port. This writes the bootloader, partition table, OTA data,
    the app and `prov`, but never `nvs`, so the stored schedule survives:
    ```bash

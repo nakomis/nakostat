@@ -6,6 +6,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 
 typedef struct
 {
@@ -19,3 +20,8 @@ typedef struct
 
 // Reads the partition. False (and a log line saying what's missing) if the heatlink isn't provisioned.
 bool prov_load(prov_t *prov);
+
+// The board this heatlink was provisioned as (board.h), read on its own because the GPIOs need it
+// before the rest. "" if there's no board key (provisioned before it existed) or no partition; "?"
+// (no board) if the key is there but can't be read, e.g. a name too long for `size`.
+void prov_board(char *out, size_t size);

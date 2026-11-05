@@ -2,9 +2,10 @@
 //
 // {"mode":"auto","relay":true,"switch":"auto","source":"schedule","demand_age_s":12,
 //  "schedule_known":true,"time_valid":true,"rssi":-61,"uptime_s":3600,"reason":"heartbeat",
-//  "version":"0.1.0"}
+//  "version":"0.1.0","board":"pcb-v1"}
 // demand_age_s and rssi are null when unknown (no demand since boot; not associated). version is
-// what Fleet keeps as the device's last status alongside its currentVersion.
+// what Fleet keeps as the device's last status alongside its currentVersion. board is the board the
+// heatlink was provisioned as (board.h), or null if it names no board this image knows.
 #pragma once
 
 #include <stdbool.h>
@@ -35,6 +36,7 @@ typedef struct
     uint32_t uptime_s;
     hl_reason reason;
     const char *version;  // NULL prints null; quotes, backslashes and control characters are escaped
+    const char *board;    // the same
 } hl_status;
 
 // Returns the length (the buffer is NUL-terminated), or -1 if it doesn't fit.

@@ -147,8 +147,8 @@ the USB charger. The board keeps the two apart:
 
 ## Pins (for the firmware)
 
-`out/heatlink/pins.h` holds these; `board/heatlink_board.py` (`GPIO`) is the source, and
-`embedded/esp32/heatlink/esp32s3/sdkconfig.board-v1` sets them in the firmware.
+`out/heatlink/pins.h` holds these; `board/heatlink_board.py` (`GPIO`) is the source. The firmware's
+board `pcb-v1` (`embedded/esp32/heatlink/port/board.c`) uses them, and its tests check the two agree.
 
 | Signal | GPIO |
 |---|---|

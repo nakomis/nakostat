@@ -5,9 +5,13 @@
 
 #include <stddef.h>
 
-// Configures the hardware (relay off), loads the stored schedule and starts the app task. Call
-// before net_start: the relay, switch and fallback run whether or not the network does.
-void app_start(void);
+#include "board.h"
+
+// Configures the board's hardware (relay off), loads the stored schedule and starts the app task.
+// Call before net_start: the relay, switch and fallback run whether or not the network does. With
+// a NULL board (unknown to this image) the relay is never on, and status says so: "relay":false,
+// "board":null.
+void app_start(const hl_board *board);
 
 // net_start's command callback (MQTT task): copies the command into an event for the app task.
 void app_on_command(const char *json, size_t len);

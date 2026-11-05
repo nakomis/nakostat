@@ -2,7 +2,12 @@
 # STAT-70: give the heatlink its IoT certificate and the settings its firmware needs. Safe to re-run.
 # Adapted from kappa-warmer's infra/scripts/provision-device.sh.
 #
-#   embedded/esp32/heatlink/scripts/provision-device.sh [thing] [--new]   (default nakostat-heatlink)
+#   embedded/esp32/heatlink/scripts/provision-device.sh --board <board> [thing] [--new]
+#                                                                    (default thing nakostat-heatlink)
+#
+# --board is the hardware, which picks the firmware's pins (port/board.h): devkitc or devkitc-v1.1
+# (the STAT-69 prototype; the DevKitC's revision is printed beside its USB ports) or pcb-v1 (the
+# STAT-75 board). Every board runs the same image.
 #
 # Each run makes sure the device's certificate is active and attached to its Thing and the policy
 # (both made by the IotStack, never the certificate). --new retires the Thing's existing
@@ -11,8 +16,8 @@
 #
 # Writes, never committed, under embedded/esp32/heatlink/esp32s3/certs/<thing>/:
 #   device.pem.crt, device.pem.key, certificate-arn
-#   prov.bin   the device's prov partition: Wi-Fi, IoT endpoint, Thing name, certificate and private
-#              key. NVS namespace "nakostat", keys as esp32s3/main/prov.c reads them.
+#   prov.bin   the device's prov partition: board, Wi-Fi, IoT endpoint, Thing name, certificate and
+#              private key. NVS namespace "nakostat", keys as esp32s3/main/prov.c reads them.
 #              esp32s3/scripts/flash-manual.sh writes it alongside the app; none of it is in the
 #              firmware image, so every heatlink runs the same (published) image.
 #
@@ -25,15 +30,26 @@
 set -euo pipefail
 umask 077
 
+# The boards port/board.c knows (tests/test_board.py checks the two lists agree).
+BOARDS="devkitc devkitc-v1.1 pcb-v1"
+
 thing=nakostat-heatlink
 new=false
-for arg in "$@"; do
-    case "$arg" in
+board=
+while [ $# -gt 0 ]; do
+    case "$1" in
         --new) new=true ;;
-        -*) echo "unknown option: $arg" >&2; exit 2 ;;
-        *) thing=$arg ;;
+        --board) board=${2:-}; shift ;;
+        -*) echo "unknown option: $1" >&2; exit 2 ;;
+        *) thing=$1 ;;
     esac
+    shift
 done
+[ -n "$board" ] || { echo "--board is required: one of ${BOARDS}" >&2; exit 2; }
+case " ${BOARDS} " in
+    *" ${board} "*) ;;
+    *) echo "unknown board '${board}': one of ${BOARDS}" >&2; exit 2 ;;
+esac
 env=${NPM_ENVIRONMENT:-sandbox}
 case "$env" in sandbox | prod) ;; *) echo "NPM_ENVIRONMENT must be sandbox or prod" >&2; exit 2 ;; esac
 export AWS_PROFILE=${AWS_PROFILE:-nakom.is-sandbox}
@@ -100,9 +116,9 @@ scrub() {
 }
 trap 'scrub "${dir}/prov.csv"' EXIT
 prov_size=$(awk -F', *' '$1 == "prov" { print $5 }' "${fw}/partitions.csv")
-python3 - "$dir" "$endpoint" "$thing" <<'PY'
+python3 - "$dir" "$endpoint" "$thing" "$board" <<'PY'
 import csv, os, sys
-d, endpoint, thing = sys.argv[1:]
+d, endpoint, thing, board = sys.argv[1:]
 ssid, password = os.environ["HL_SSID"], os.environ["HL_PASSWORD"]
 if len(ssid.encode()) > 32 or len(password.encode()) > 63:
     sys.exit("Wi-Fi SSID or password too long for ESP-IDF (32 / 63 bytes)")
@@ -111,6 +127,7 @@ if len(endpoint.encode()) > 127 or len(thing.encode()) > 128:
 # Namespace and keys as esp32s3/main/prov.c reads them.
 rows = [
     ("nakostat", "namespace", "", ""),
+    ("board", "data", "string", board),
     ("wifi_ssid", "data", "string", ssid),
     ("wifi_pass", "data", "string", password),
     ("endpoint", "data", "string", endpoint),
@@ -124,4 +141,4 @@ with open(os.path.join(d, "prov.csv"), "w", newline="", encoding="utf-8") as f:
     w.writerows(rows)
 PY
 python -m esp_idf_nvs_partition_gen generate "${dir}/prov.csv" "${dir}/prov.bin" "$prov_size" > /dev/null
-echo "wrote ${dir}/prov.bin for ${thing} (${endpoint}); flash it with embedded/esp32/heatlink/esp32s3/scripts/flash-manual.sh <port> ${thing}"
+echo "wrote ${dir}/prov.bin for ${thing} (board ${board}, ${endpoint}); flash it with embedded/esp32/heatlink/esp32s3/scripts/flash-manual.sh <port> ${thing}"

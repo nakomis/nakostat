@@ -13,7 +13,7 @@ STAT-69 / STAT-74. Design: [`superpowers/specs/2026-10-19-heatlink-v2-prototype-
 
 | Part | Notes |
 |---|---|
-| ESP32-S3-DevKitC-1 N16R8 | Any revision. The RGB LED is on GPIO48 (rev 1.0) or GPIO38 (rev 1.1): set `HEATLINK_LED_GPIO` in menuconfig |
+| ESP32-S3-DevKitC-1 N16R8 | Any revision. The RGB LED is on GPIO48 (rev 1.0) or GPIO38 (rev 1.1): provision it as board `devkitc` or `devkitc-v1.1` |
 | Mains-rated single-channel relay module | 5 V coil, opto-isolated, contacts ≥ 250 V AC. Note whether it triggers on **low** (default) or **high** |
 | 3-way switch | ON-OFF-ON toggle or a 3-position rotary: two throws and a common |
 | Half-size breadboard, jumper wires | DevKitC straddles the centre channel |
@@ -30,13 +30,15 @@ STAT-69 / STAT-74. Design: [`superpowers/specs/2026-10-19-heatlink-v2-prototype-
 | GPIO4 | Relay module IN | Active-low modules: open-drain (low = on, released = off), so the relay is off while the GPIO floats at boot |
 | GPIO5 | Switch "ON" throw | Internal pull-up; reads low when the switch is up |
 | GPIO6 | Switch "OFF" throw | Internal pull-up; reads low when the switch is down |
-| (onboard) GPIO48 | RGB status LED | Already on the board |
+| (onboard) GPIO48 (GPIO38 on rev 1.1) | RGB status LED | Already on the board |
 
 The centre position (neither throw connected) is **AUTO**. Avoid GPIO 0, 3, 45 and 46 (strapping
 pins), 19 and 20 (USB), 35–37 (the N16R8's octal PSRAM) and 43–44 (UART0).
 
-**Relay trigger level.** If your module triggers on **high** (check its jumper or the listing), set
-`HEATLINK_RELAY_ACTIVE_LOW=n` in menuconfig. The firmware then drives GPIO4 push-pull instead.
+**Relay trigger level.** The `devkitc` boards expect a module that triggers on **low**. If yours
+triggers on **high** (check its jumper or the listing), set the jumper to low if it has one; otherwise
+add a board with `relay_active_low = false` to `embedded/esp32/heatlink/port/board.c` (and to
+`BOARDS` in `scripts/provision-device.sh`). The firmware then drives GPIO4 push-pull instead.
 
 ## 1. Bench test (no mains)
 

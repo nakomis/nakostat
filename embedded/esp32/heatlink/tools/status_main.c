@@ -2,7 +2,7 @@
 //
 //   {"mode":"auto","relay":true,"switch":"auto","source":"schedule","demand_age_s":12|null,
 //    "schedule_known":true,"time_valid":true,"rssi":-61|null,"uptime_s":3600,"reason":"heartbeat",
-//    "version":"0.1.0"|null, "_bufsize":4096}
+//    "version":"0.1.0"|null, "board":"pcb-v1"|null, "_bufsize":4096}
 //
 // Missing fields take the zero view (auto, off, auto, schedule, ...). Prints the JSON, or ERR if it
 // doesn't fit _bufsize.
@@ -52,6 +52,8 @@ int main(void)
         v.uptime_s = cJSON_IsNumber(up) ? (uint32_t)up->valuedouble : 0;
         const cJSON *ver = cJSON_GetObjectItemCaseSensitive(in, "version");
         v.version = cJSON_IsString(ver) ? ver->valuestring : NULL;
+        const cJSON *board = cJSON_GetObjectItemCaseSensitive(in, "board");
+        v.board = cJSON_IsString(board) ? board->valuestring : NULL;
         const cJSON *size = cJSON_GetObjectItemCaseSensitive(in, "_bufsize");
         size_t cap = cJSON_IsNumber(size) ? (size_t)size->valuedouble : 4096;
         char *buf = malloc(cap ? cap : 1);
