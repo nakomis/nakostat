@@ -39,7 +39,7 @@ board=
 while [ $# -gt 0 ]; do
     case "$1" in
         --new) new=true ;;
-        --board) board=${2:-}; shift ;;
+        --board) [ $# -ge 2 ] || { echo "--board needs a value: one of ${BOARDS}" >&2; exit 2; }; board=$2; shift ;;
         -*) echo "unknown option: $1" >&2; exit 2 ;;
         *) thing=$1 ;;
     esac

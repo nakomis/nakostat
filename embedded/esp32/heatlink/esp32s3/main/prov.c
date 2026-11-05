@@ -40,14 +40,19 @@ static char *get_alloc(nvs_handle_t h, const char *key)
 
 void prov_board(char *out, size_t size)
 {
+    // Only "not there" means unprovisioned (the default board); any other failure is a partition
+    // that can't be trusted, and "?" is no board, so a damaged PCB never runs on the DevKitC's pins.
     out[0] = '\0';
     nvs_handle_t h;
-    if (nvs_flash_init_partition(PARTITION) != ESP_OK ||
-        nvs_open_from_partition(PARTITION, NAMESPACE, NVS_READONLY, &h) != ESP_OK)
-        return;
-    size_t len = size;
-    esp_err_t err = nvs_get_str(h, "board", out, &len);
-    nvs_close(h);
+    esp_err_t err = nvs_flash_init_partition(PARTITION);
+    if (err == ESP_OK)
+        err = nvs_open_from_partition(PARTITION, NAMESPACE, NVS_READONLY, &h);  // NOT_FOUND: never provisioned
+    if (err == ESP_OK)
+    {
+        size_t len = size;
+        err = nvs_get_str(h, "board", out, &len);  // NOT_FOUND: provisioned before the key existed
+        nvs_close(h);
+    }
     if (err == ESP_ERR_NVS_NOT_FOUND)
         out[0] = '\0';
     else if (err != ESP_OK)

@@ -63,7 +63,8 @@ def test_provisioning_offers_exactly_the_known_boards(tool):
     assert listed == [line.split()[0] for line in board(tool, "--all").splitlines()]
 
 
-@pytest.mark.parametrize("args,error", [((), "--board is required"), (("--board", "pcb"), "unknown board 'pcb'")])
+@pytest.mark.parametrize("args,error", [((), "--board is required"), (("--board", "pcb"), "unknown board 'pcb'"),
+                                        (("--board",), "--board needs a value")])
 def test_provisioning_refuses_a_missing_or_unknown_board(args, error):
     # Argument checks come before any AWS call.
     done = subprocess.run(["bash", str(PROVISION), *args], capture_output=True, text=True)
