@@ -22,6 +22,7 @@ export class GithubCiStack extends cdk.Stack {
     super(scope, id, props);
 
     const { deployEnv, githubOidcProviderArn, webBucket, webDistribution } = props;
+    const context = deployEnv === 'prod' ? 'environment:production' : '*';
 
     const githubOidc = iam.OpenIdConnectProvider.fromOpenIdConnectProviderArn(
       this,
@@ -47,10 +48,14 @@ export class GithubCiStack extends cdk.Stack {
         // only to names can be inherited by whoever claims the name next.
         // A list is an OR; the legacy form is kept because it is still emitted
         // in some contexts and the names are pinned either way.
+        //
+        // Prod trusts only jobs in the `production` environment (STAT-81), which
+        // needs Martin's approval, so a branch can never read prod's firmware
+        // signing key. Every prod job runs there already.
         StringLike: {
           'token.actions.githubusercontent.com:sub': [
-            'repo:nakomis@1488244/nakostat@1220064545:*',
-            'repo:nakomis/nakostat:*',
+            `repo:nakomis@1488244/nakostat@1220064545:${context}`,
+            `repo:nakomis/nakostat:${context}`,
           ],
         },
       }),
@@ -91,6 +96,26 @@ export class GithubCiStack extends cdk.Stack {
             new iam.PolicyStatement({
               actions: ['s3:ListBucket'],
               resources: [`arn:aws:s3:::nakomis-firmware-${deployEnv}`],
+            }),
+          ],
+        }),
+        // Sign it first (STAT-81): read this environment's firmware signing key, a
+        // SecureString under the account's aws/ssm key (scripts/ota-signing-key.sh),
+        // decrypting only through SSM.
+        OtaSigning: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              actions: ['ssm:GetParameter'],
+              resources: [
+                `arn:aws:ssm:${this.region}:${this.account}:parameter/nakostat/${deployEnv}/ota/signing-key`,
+              ],
+            }),
+            new iam.PolicyStatement({
+              actions: ['kms:Decrypt'],
+              resources: ['*'],
+              conditions: {
+                StringEquals: { 'kms:ViaService': `ssm.${this.region}.amazonaws.com` },
+              },
             }),
           ],
         }),

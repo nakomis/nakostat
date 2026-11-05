@@ -89,8 +89,11 @@ Full details: `embedded/esp32/heatlink/README.md`.
   OTA through Fleet with rollback; don't change Fleet's message shapes.
 - Credentials (Wi-Fi, IoT endpoint, cert, key) live in the `prov` NVS partition, written by
   `scripts/provision-device.sh`; never in the image, never through CloudFormation.
-- CI builds, and publishes to `s3://nakomis-firmware-{env}/nakostat/<version>/` on merge; bump
-  `esp32s3/version.txt` with every firmware change.
+- CI builds, signs with each environment's key (SSM `/nakostat/{env}/ota/signing-key`) and publishes
+  to `s3://nakomis-firmware-{env}/nakostat/<version>/` on merge; bump `esp32s3/version.txt` with
+  every firmware change. Every image is signed, USB flashes too (`esp32s3/scripts/sign.sh`; STAT-81).
+- Pins come from the board in `prov` (`port/board.c`: devkitc, devkitc-v1.1, pcb-v1), one image for
+  all (STAT-80).
 
 ## Hardware and wiring
 

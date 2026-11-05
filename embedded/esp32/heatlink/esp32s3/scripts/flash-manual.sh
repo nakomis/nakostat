@@ -7,14 +7,17 @@
 # CH343 on macOS), put the board in download mode first: hold BOOT, tap RST, release BOOT.
 # Afterwards a watchdog reset starts the new firmware, so no RST tap is needed.
 #
-# Writes the bootloader, partition table, OTA data and the app from build/ (idf.py build; OTA is
-# unsigned), plus the device's prov partition from certs/<thing>/prov.bin
+# Writes the bootloader, partition table, OTA data and the app from build/ (idf.py build), plus the device's prov partition from certs/<thing>/prov.bin
 # (scripts/provision-device.sh; the only one there if no thing is named). Never the nvs partition:
 # the stored schedule survives. Writing OTA data boots ota_0, whichever slot an update had moved to.
+#
+# The app is signed first (sign.sh, NPM_ENVIRONMENT's key, default sandbox): an unsigned image would
+# refuse every update (STAT-81). Use the environment the heatlink was provisioned for.
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 [ $# -ge 1 ] || { echo "usage: flash-manual.sh <port> [thing]" >&2; exit 2; }
 [ -d "$here/build" ] && [ -f "$here/build/flash_args" ] || { echo "no build/flash_args: run idf.py build first" >&2; exit 1; }
+"$here/scripts/sign.sh" "$here/build/nakostat.bin"
 cd "$here/build"
 IDF_PATH="${IDF_PATH:-$HOME/esp/v5.5/esp-idf}"
 # shellcheck disable=SC1091

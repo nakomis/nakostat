@@ -20,10 +20,15 @@ CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
 CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
 
 # OTA: two app slots; a new image that fails its self-test (or crashes before passing it) is rolled
-# back by the bootloader. Images are unsigned for the prototype (Fleet capability "ota"): no
-# signature check, no signing keys. Signed OTA comes with the PCB.
+# back by the bootloader. Updates are signed (STAT-81, as tinycrypt): RSA-3072, the secure boot v2
+# scheme, checked by the running app before it accepts a new one, against the key that signed the
+# running image. No secure boot (no eFuses burned), so a USB flash still works. The build is
+# unsigned; scripts/sign.sh signs it locally, and CI signs per environment (scripts/ci-publish.sh).
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
-CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=n
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=n
 
 # MQTT: drop an unsent message after 10 s, so a reconnect can't deliver a stale response.
 CONFIG_MQTT_USE_CUSTOM_CONFIG=y

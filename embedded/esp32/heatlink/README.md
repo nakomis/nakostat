@@ -157,9 +157,32 @@ The app task, which drives the relay, is watched by the task watchdog: if its lo
 the heatlink panics and restarts (relay off at reset; the crash is saved as a core dump). A new image
 on probation that hangs is rolled back.
 
-OTA is unsigned for the prototype (Fleet capability `ota`). A new image is on probation until MQTT
-is subscribed to `/commands` (SUBACK granted). If that doesn't happen within 120 s, the bootloader
-rolls back to the old image.
+A new image is on probation until MQTT is subscribed to `/commands` (SUBACK granted). If that
+doesn't happen within 120 s, the bootloader rolls back to the old image.
+
+### Signed updates (STAT-81)
+
+Updates are signed, as tinycrypt's are: RSA-3072, ESP-IDF's secure boot v2 scheme. The running image
+checks a new image's signature before it accepts it, against the key that signed the running image,
+so a heatlink only takes firmware signed with its environment's key. There is no secure boot (no
+eFuses burned), so a USB flash still works. The Thing's Fleet capabilities are `ota,ota-signed`, so
+Fleet offers only builds published with `signed=true`.
+
+- **Keys:** one per environment, made once by `scripts/ota-signing-key.sh` (it refuses to replace
+  one: that would strand every heatlink). The private key is in SSM, `/nakostat/{env}/ota/signing-key`
+  (a free SecureString), and in the login Keychain (`nakostat-ota-signing`, account `{env}`); the
+  public half is committed, `esp32s3/ota-signing/{env}.pub.pem`.
+- **CI** builds unsigned, then `esp32s3/scripts/ci-publish.sh` signs the same bytes with sandbox's key
+  for sandbox and prod's for prod, checks each against the committed public key, and publishes them.
+  The prod role trusts only jobs in the `production` environment, so no branch can read prod's key.
+- **Locally**, `esp32s3/scripts/sign.sh` signs `build/nakostat.bin` (Keychain, else SSM), and
+  `flash-manual.sh` runs it. Every image must be signed, USB flashes included: an unsigned image
+  refuses every update. `NPM_ENVIRONMENT` (default `sandbox`) picks the key: use the environment the
+  heatlink was provisioned for.
+- **Don't use Fleet's "promote"** for nakostat: it copies the sandbox build, signed with sandbox's key,
+  which a prod heatlink refuses. CI publishes prod's own signed build.
+- **Moving to signed:** firmware before 0.1.3 checks no signatures, so it accepts the first signed
+  image like any other. From then on, only signed updates.
 
 ## Host tests
 
@@ -193,7 +216,8 @@ The app is about 1.0 MB in a 1.875 MB slot (about 53%).
    AWS_PROFILE=nakom.is-sandbox NPM_ENVIRONMENT=sandbox embedded/esp32/heatlink/scripts/provision-device.sh --board devkitc
    ```
    `--board` is `devkitc`, `devkitc-v1.1` or `pcb-v1` (see [Boards](#boards)).
-3. Flash over the DevKitC's **UART** port. This writes the bootloader, partition table, OTA data,
+3. Flash over the DevKitC's **UART** port. The app is signed first (`esp32s3/scripts/sign.sh`, the
+   `NPM_ENVIRONMENT` key, default sandbox). This writes the bootloader, partition table, OTA data,
    the app and `prov`, but never `nvs`, so the stored schedule survives:
    ```bash
    embedded/esp32/heatlink/esp32s3/scripts/flash-manual.sh /dev/cu.usbserial-XXXX
@@ -201,8 +225,9 @@ The app is about 1.0 MB in a 1.875 MB slot (about 53%).
    If auto-reset fails: hold BOOT, tap RST, release BOOT, then run it again.
 4. Watch the log: `idf.py -p /dev/cu.usbserial-XXXX monitor`.
 
-After that, Fleet updates it over the air. CI publishes each build with `esp32s3/scripts/ci-publish.sh`
-to `s3://nakomis-firmware-{env}/nakostat/<version>/firmware.bin`.
+After that, Fleet updates it over the air. CI signs and publishes each build with
+`esp32s3/scripts/ci-publish.sh` to `s3://nakomis-firmware-{env}/nakostat/<version>/firmware.bin`
+([Signed updates](#signed-updates-stat-81)).
 
 ## Bench test (no mains)
 

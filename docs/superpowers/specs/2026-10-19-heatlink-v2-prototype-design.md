@@ -24,8 +24,8 @@ Technical decisions (Claude's, stated so they can be overridden):
 - **Firmware is rewritten in ESP-IDF 5.5** on the kappa-warmer/tinycrypt pattern: portable C in
   `port/` built natively and tested with pytest, IDF glue in `esp32s3/main/`, credentials in a `prov`
   NVS partition, the Fleet MQTT protocol, OTA with rollback. The Arduino `boiler/` firmware is deleted.
-- **OTA is unsigned for the prototype** (Fleet capability `ota`, as kappa-warmer). Signed OTA
-  (`ota-signed`) comes with the PCB in Phase 2.
+- **OTA was unsigned for the prototype** (Fleet capability `ota`, as kappa-warmer). Since 0.1.3
+  (STAT-81) it is signed (`ota-signed`), as tinycrypt: see the heatlink README, "Signed updates".
 - **No PSRAM, 4 MB partition table**, so the same image runs on the DevKitC (16 MB) and on the
   Phase 2 module (ESP32-S3-MINI-1-N8). CPU at 160 MHz.
 - **Case in OpenSCAD**: local, deterministic, renderable from CI, no Onshape API quota.
