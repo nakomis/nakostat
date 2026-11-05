@@ -93,7 +93,7 @@ def world(tmp_path, keys):
             return fake / "s3" / "nakostat" / version / "firmware.bin"
 
     w = World()
-    w.image, w.keys = image, keys
+    w.image, w.keys, w.tree = image, keys, tree
     w.set_key("right")
     return w
 
@@ -125,6 +125,17 @@ def test_refuses_an_image_that_is_already_signed(world, tmp_path):
                      "--output", str(signed), str(world.image)).returncode == 0
     done = world.publish("sandbox", str(signed), "1.2.3")
     assert done.returncode == 1 and "already signed" in done.stderr
+    assert not world.published().exists()
+
+
+def test_refuses_an_image_signed_with_another_environments_key(world, tmp_path):
+    # As if signed for prod: its public half is committed too, so ci-publish.sh for sandbox knows it.
+    shutil.copy(world.keys / "wrong.pub.pem", world.tree / "ota-signing" / "prod.pub.pem")
+    signed = tmp_path / "signed.bin"
+    assert espsecure("sign_data", "--version", "2", "--keyfile", str(world.keys / "wrong.pem"),
+                     "--output", str(signed), str(world.image)).returncode == 0
+    done = world.publish("sandbox", str(signed), "1.2.3")
+    assert done.returncode == 1 and "already signed (prod key)" in done.stderr
     assert not world.published().exists()
 
 

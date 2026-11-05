@@ -36,6 +36,14 @@ if espsecure.py verify_signature --version 2 --keyfile "$pub" "$bin" > /dev/null
     echo "$bin is already signed ($env key)"
     exit 0
 fi
+# Signed with another environment's key: signing again would sign the old signature sector as data,
+# and the heatlink, which reads the block straight after the app, would trust the old key.
+for other in "$here"/ota-signing/*.pub.pem; do
+    if espsecure.py verify_signature --version 2 --keyfile "$other" "$bin" > /dev/null 2>&1; then
+        echo "$bin is signed with the $(basename "$other" .pub.pem) key: delete it and run idf.py build, then sign for $env" >&2
+        exit 1
+    fi
+done
 
 if ! key_b64=$(security find-generic-password -s "$service" -a "$env" -w 2> /dev/null); then
     echo "signing key not in the Keychain: fetching it from SSM" >&2

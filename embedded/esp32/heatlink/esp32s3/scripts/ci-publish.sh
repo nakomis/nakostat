@@ -33,11 +33,14 @@ pub="$here/ota-signing/${env}.pub.pem"
 bucket="nakomis-firmware-${env}"
 object="nakostat/${version}/firmware.bin"
 
-# An image that's already signed would get a second block, which the heatlink would never check.
-if espsecure.py verify_signature --version 2 --keyfile "$pub" "$unsigned" > /dev/null 2>&1; then
-    echo "$unsigned is already signed: publish the unsigned build" >&2
-    exit 1
-fi
+# An image that's already signed (by any of our keys) would have its old signature sector signed as
+# data, and the heatlink, which reads the block straight after the app, would trust the old key.
+for key in "$here"/ota-signing/*.pub.pem; do
+    if espsecure.py verify_signature --version 2 --keyfile "$key" "$unsigned" > /dev/null 2>&1; then
+        echo "$unsigned is already signed ($(basename "$key" .pub.pem) key): publish the unsigned build" >&2
+        exit 1
+    fi
+done
 
 dir=$(mktemp -d)
 trap 'rm -f "$dir"/*; rmdir "$dir"' EXIT

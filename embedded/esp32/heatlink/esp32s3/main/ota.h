@@ -1,4 +1,4 @@
-// Over-the-air updates through Fleet, unsigned.
+// Over-the-air updates through Fleet, signed (STAT-81).
 //
 // Fleet only says "please update": ota_update {url, version, sha256} (or url_chunks) on
 // nakostat/<thing>/commands. The heatlink then
