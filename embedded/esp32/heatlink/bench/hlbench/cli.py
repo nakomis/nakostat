@@ -121,7 +121,9 @@ def run_trial(link, record: Recorder, alerts: Trial, notify_too=False, until=Non
             wait = 5 if until is None else max(0.05, min(5, until - time.time()))
             arrived, kind, body = link.messages.get(timeout=wait)
             record(arrived, kind, body)
-            if isinstance(body, dict):
+            if kind == "link":
+                show(alerts.link(body))
+            elif isinstance(body, dict):
                 show(alerts.feed(kind, body, arrived))
         except queue.Empty:
             pass
@@ -157,7 +159,7 @@ def main(argv=None):
             while True:
                 record(*link.messages.get())
         elif args.cmd == "trial":
-            run_trial(link, record, Trial(), notify_too=args.notify)
+            run_trial(link, record, Trial(started=time.time()), notify_too=args.notify)
         else:
             check = Check(args.board, fallback=not args.quick)
             ok = check.run(LinkSession(link, record))

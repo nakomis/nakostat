@@ -145,12 +145,28 @@ def kinds(alerts):
 
 def test_silence_is_raised_once_and_cleared_by_the_next_status():
     t = Trial()
-    assert t.tick(0) == []                          # nothing heard yet: nothing to miss
     t.feed("status", status(), 0)
     assert t.tick(140) == []
     assert kinds(t.tick(151)) == [("silent", False)]
     assert t.tick(400) == []
     assert ("silent", True) in kinds(t.feed("status", status(uptime_s=500), 410))
+
+
+def test_a_heatlink_silent_from_the_start_is_silent():
+    t = Trial(started=1000)
+    assert t.tick(1140) == []
+    alerts = t.tick(1151)
+    assert kinds(alerts) == [("silent", False)] and "since the watcher started" in alerts[0].message
+
+
+def test_the_watchers_own_link_is_not_blamed_on_the_heatlink():
+    t = Trial(started=0)
+    alerts = t.link("no AWS credentials (TokenRetrievalError): aws sso login --profile nakom.is")
+    assert kinds(alerts) == [("link", False)] and "watcher's own connection" in alerts[0].message
+    assert t.link("connection lost: x") == []     # once
+    assert t.tick(1000) == []                      # no silent while we can't hear
+    assert kinds(t.link("reconnected")) == [("link", True)]
+    assert kinds(t.tick(1001)) == [("silent", False)]
 
 
 def test_board_null_is_an_error_but_no_board_field_is_not():

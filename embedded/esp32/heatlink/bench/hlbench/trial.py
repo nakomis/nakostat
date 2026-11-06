@@ -16,7 +16,7 @@ RELAY_ON_LONG_S = 4 * 3600
 
 @dataclass(frozen=True)
 class Alert:
-    kind: str           # silent, board, fallback, disagree, rssi, relay_long, reboot, version
+    kind: str           # silent, link, board, fallback, disagree, rssi, relay_long, reboot, version
     level: str          # error, warn, info
     message: str
     cleared: bool = False
@@ -30,6 +30,7 @@ class Trial:
     silent_s: float = SILENT_S
     relay_on_long_s: float = RELAY_ON_LONG_S
     weak_rssi: int = WEAK_RSSI
+    started: float | None = None    # when watching began: a heatlink silent from the start is silent too
     last_status: dict | None = None
     last_status_at: float | None = None
     demand: dict | None = None
@@ -110,11 +111,19 @@ class Trial:
         return self._raise("relay_long", "warn",
                            f"relay has been on for {(now - self.relay_on_since) / 3600:.1f} h")
 
+    def link(self, text: str) -> list[Alert]:
+        """A note from the watcher's own connection (link.py), not from the heatlink."""
+        if text == "reconnected":
+            return self._clear("link", "the watcher is connected again")
+        return self._raise("link", "error", f"the watcher's own connection: {text}")
+
     def tick(self, now: float) -> list[Alert]:
-        if self.last_status_at is None:
-            return []
-        quiet = now - self.last_status_at
+        since = self.last_status_at if self.last_status_at is not None else self.started
+        if since is None or "link" in self.active:   # while we can't hear, silence means nothing
+            return self._relay_long(now)
+        quiet = now - since
         out = []
         if quiet > self.silent_s:
-            out += self._raise("silent", "error", f"no status for {quiet:.0f} s: heatlink offline?")
+            heard = "" if self.last_status_at is not None else " since the watcher started"
+            out += self._raise("silent", "error", f"no status for {quiet:.0f} s{heard}: heatlink offline?")
         return out + self._relay_long(now)

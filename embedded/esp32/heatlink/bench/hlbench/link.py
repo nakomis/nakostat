@@ -12,7 +12,7 @@ import uuid
 import boto3
 from awscrt import auth, mqtt
 from awsiot import mqtt_connection_builder
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 
 
 class Link:
@@ -28,10 +28,15 @@ class Link:
             raise SystemExit(f"{e}\n(an expired SSO session? {self.login})") from None
 
         def credentials():
+            # On awscrt's thread, at each (re)connect. boto3 refreshes SSO role credentials itself, from
+            # the cached SSO token, until that token runs out.
             try:
-                c = session.get_credentials().get_frozen_credentials()
+                found = session.get_credentials()
+                if found is None:
+                    raise NoCredentialsError()
+                c = found.get_frozen_credentials()
             except BotoCoreError as e:
-                # A reconnect after the SSO session ran out: say so, then let awscrt keep retrying.
+                # Say so, then let awscrt keep retrying: an aws sso login brings it back.
                 self._note("link", f"no AWS credentials ({e.__class__.__name__}): {self.login}")
                 raise
             return auth.AwsCredentials(c.access_key, c.secret_key, c.token)
@@ -48,7 +53,9 @@ class Link:
     def _resumed(self, connection, return_code, session_present, **kw):
         self._note("link", "reconnected")
         if not session_present:
-            self._subscribe()
+            # Never wait here: the SUBACK is handled on this same thread.
+            future, _ = self.conn.subscribe(f"{self.prefix}/#", mqtt.QoS.AT_LEAST_ONCE, self._on_message)
+            future.add_done_callback(lambda f: f.exception() and self._note("link", f"resubscribe failed: {f.exception()}"))
 
     def _on_message(self, topic, payload, **kw):
         try:
@@ -57,13 +64,10 @@ class Link:
             body = payload.decode(errors="replace")
         self.messages.put((time.time(), topic.rsplit("/", 1)[-1], body))
 
-    def _subscribe(self):
-        future, _ = self.conn.subscribe(f"{self.prefix}/#", mqtt.QoS.AT_LEAST_ONCE, self._on_message)
-        future.result(timeout=15)
-
     def open(self):
         self.conn.connect().result(timeout=30)
-        self._subscribe()
+        future, _ = self.conn.subscribe(f"{self.prefix}/#", mqtt.QoS.AT_LEAST_ONCE, self._on_message)
+        future.result(timeout=15)
         return self
 
     def close(self):

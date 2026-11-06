@@ -47,7 +47,8 @@ which the firmware ignores.
 
 | Alert | When |
 |---|---|
-| silent (error) | No status for 150 s (the heartbeat is every 60 s) |
+| silent (error) | No status for 150 s (the heartbeat is every 60 s), counting from when `trial` started |
+| link (error) | The watcher's own connection is down, or its SSO session ran out. Silence isn't reported meanwhile |
 | board (error) | `"board":null`: the heatlink drives no pins |
 | disagree (error) | In `auto`, the relay doesn't match the daemon's latest demand, 5–90 s after it was sent |
 | fallback (warn) | `mode:"fallback"`: the daemon has gone quiet |
