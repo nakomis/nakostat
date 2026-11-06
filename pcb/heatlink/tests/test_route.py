@@ -129,11 +129,23 @@ def test_back_text_boxes_hold_the_back_text_and_stay_on_the_board():
     assert {t for t, _, _ in hb.BACK_TEXT} <= back
 
 
-def test_full_route_is_drc_clean():
-    """Integration: run build.py --route and check its outputs (slow)."""
-    r = subprocess.run(["./.venv/bin/python", "build.py", "--route"], cwd=ROOT, capture_output=True, text=True)
+def _snapshot(d):
+    return {p.relative_to(d): (p.stat().st_mtime_ns, p.stat().st_size) for p in d.rglob("*") if p.is_file()}
+
+
+def test_full_route_is_drc_clean(tmp_path):
+    """Integration: run build.py --route and check its outputs (slow). It builds into tmp_path:
+    Freerouting doesn't route the same way twice, so building in place would overwrite the
+    ordered board in out/heatlink/ (STAT-79)."""
+    ordered = ROOT / "out" / "heatlink"
+    ordered_doc = ROOT.parent.parent / "docs" / "heatlink-board-key.md"
+    before = _snapshot(ordered), ordered_doc.stat().st_mtime_ns
+    out = tmp_path / "heatlink"
+    r = subprocess.run(["./.venv/bin/python", "build.py", "--route", "--out", str(out)], cwd=ROOT,
+                       capture_output=True, text=True)
     assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
-    out = ROOT / "out" / "heatlink"
+    assert (_snapshot(ordered), ordered_doc.stat().st_mtime_ns) == before
+    assert (out / "heatlink-board-key.md").exists()
     drc = json.loads((out / "drc.json").read_text())
     assert drc["unconnected_items"] == []
     assert [v for v in drc["violations"] if v["severity"] == "error"] == []
