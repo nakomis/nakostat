@@ -7,6 +7,18 @@ If you find this useful, please consider buying me a coffee:
 [![Donate with PayPal](https://www.paypalobjects.com/en_GB/i/btn/btn_donate_SM.gif)](https://www.paypal.com/donate?hosted_button_id=Q3BESC73EWVNN&custom=nakostat)
 
 <!-- toc -->
+
+- [Hardware](#hardware)
+- [Architecture](#architecture)
+- [Repo layout](#repo-layout)
+- [Quick start](#quick-start)
+- [Toolchain versions](#toolchain-versions)
+- [Lint and format](#lint-and-format)
+- [Deployment versions](#deployment-versions)
+- [Related repos](#related-repos)
+- [Licence](#licence)
+- [Support](#support)
+
 <!-- tocstop -->
 
 A DIY smart thermostat built after the Nest thermostat and Heatlink both failed. Replaces both with a Raspberry Pi touch-screen UI, an ESP32 boiler relay controller, AWS IoT Core, and an Alexa thermostat skill.

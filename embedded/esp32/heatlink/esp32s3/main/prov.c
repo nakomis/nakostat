@@ -1,6 +1,7 @@
 // The heatlink's provisioned settings. See prov.h.
 #include "prov.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -35,6 +36,30 @@ static char *get_alloc(nvs_handle_t h, const char *key)
     if (out == NULL)
         ESP_LOGE(TAG, "%s: %s", key, err == ESP_OK ? "out of memory" : esp_err_to_name(err));
     return out;
+}
+
+void prov_board(char *out, size_t size)
+{
+    // Only "not there" means unprovisioned (the default board); any other failure is a partition
+    // that can't be trusted, and "?" is no board, so a damaged PCB never runs on the DevKitC's pins.
+    out[0] = '\0';
+    nvs_handle_t h;
+    esp_err_t err = nvs_flash_init_partition(PARTITION);
+    if (err == ESP_OK)
+        err = nvs_open_from_partition(PARTITION, NAMESPACE, NVS_READONLY, &h);  // NOT_FOUND: never provisioned
+    if (err == ESP_OK)
+    {
+        size_t len = size;
+        err = nvs_get_str(h, "board", out, &len);  // NOT_FOUND: provisioned before the key existed
+        nvs_close(h);
+    }
+    if (err == ESP_ERR_NVS_NOT_FOUND)
+        out[0] = '\0';
+    else if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "board: %s", esp_err_to_name(err));
+        snprintf(out, size, "?");
+    }
 }
 
 bool prov_load(prov_t *prov)

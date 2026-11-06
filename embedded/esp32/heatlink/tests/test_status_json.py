@@ -9,7 +9,7 @@ import pytest
 
 FULL = {"mode": "auto", "relay": True, "switch": "auto", "source": "schedule", "demand_age_s": 12,
         "schedule_known": True, "time_valid": True, "rssi": -61, "uptime_s": 3600, "reason": "heartbeat",
-        "version": "0.1.0"}
+        "version": "0.1.0", "board": "pcb-v1"}
 
 
 @pytest.fixture
@@ -41,15 +41,16 @@ def test_enumerations(status, field, values):
 
 
 def test_unknowns_are_null(status):
-    out = json.loads(status({**FULL, "demand_age_s": None, "rssi": None, "version": None}))
+    out = json.loads(status({**FULL, "demand_age_s": None, "rssi": None, "version": None, "board": None}))
     assert out["demand_age_s"] is None and out["rssi"] is None and out["version"] is None
+    assert out["board"] is None
 
 
 def test_zero_view(status):
     assert json.loads(status({})) == {
         "mode": "auto", "relay": False, "switch": "auto", "source": "schedule", "demand_age_s": None,
         "schedule_known": False, "time_valid": False, "rssi": None, "uptime_s": 0, "reason": "boot",
-        "version": None}
+        "version": None, "board": None}
 
 
 def test_large_numbers(status):
@@ -63,6 +64,10 @@ def test_version_is_escaped(status):
     assert json.loads(out)["version"] == 'a"b\\c\n'
 
 
+def test_board_is_escaped(status):
+    assert json.loads(status({**FULL, "board": 'x"y'}))["board"] == 'x"y'
+
+
 def test_buffer_too_small(status):
     n = len(status(FULL))
     assert status({**FULL, "_bufsize": n}) == "ERR"  # no room for the NUL
@@ -72,5 +77,6 @@ def test_buffer_too_small(status):
 def test_fits_the_app_buffer(status):
     # app.c builds status into 384 bytes; the longest values must fit.
     worst = {**FULL, "mode": "force_off", "source": "override", "demand_age_s": 4294967295, "rssi": -127,
-             "uptime_s": 4294967295, "reason": "heartbeat", "version": "9999.9999.9999"}
+             "uptime_s": 4294967295, "reason": "heartbeat", "version": "9999.9999.9999",
+             "board": "devkitc"}
     assert len(status(worst)) < 384

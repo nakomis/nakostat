@@ -98,7 +98,9 @@ and prod accounts are separate, so the thing name has no env suffix. Existing Pi
 #### Heatlink status (published on `/status`)
 
 The fields Fleet reads (copy kappa-warmer's `status_json`), plus:
-`{"mode":"auto"|"fallback"|"force_on"|"force_off","relay":true,"switch":"auto"|"on"|"off","source":"schedule"|"override"|"frost"|"off"|"fallback"|"switch","demand_age_s":12,"schedule_known":true,"time_valid":true,"rssi":-61,"uptime_s":3600,"reason":"boot"|"heartbeat"|"change"|"request"}`
+`{"mode":"auto"|"fallback"|"force_on"|"force_off","relay":true,"switch":"auto"|"on"|"off","source":"schedule"|"override"|"frost"|"off"|"fallback"|"switch","demand_age_s":12,"schedule_known":true,"time_valid":true,"rssi":-61,"uptime_s":3600,"reason":"boot"|"heartbeat"|"change"|"request","version":"0.1.2","board":"devkitc"|"devkitc-v1.1"|"pcb-v1"|null}`
+`board` (STAT-80) is the board the heatlink was provisioned as; null if this image doesn't know it, in
+which case it drives no pins and `relay` stays false.
 It publishes every 60 s (`heartbeat`) and immediately whenever `mode` or `relay` changes (`change`).
 
 #### Daemon state (`pi/state`, every 60 s and on change)
@@ -149,10 +151,13 @@ Board: **ESP32-S3-DevKitC-1 N16R8**. Avoid GPIO 35–37 (octal PSRAM), the strap
 
 | Signal | GPIO | Notes |
 |---|---|---|
-| Relay IN | 4 | Kconfig `HEATLINK_RELAY_ACTIVE_LOW` (default **y**). Active-low is driven **open-drain**: low = on, released = off (the module's pull-up). That works whether the module runs at 3.3 V or 5 V, and the relay is off while the GPIO floats at boot. An active-high module uses push-pull. |
+Since STAT-80 the pins are not Kconfig options: every board runs one image, which reads its board from
+the `prov` partition at boot (`port/board.c`).
+
+| Relay IN | 4 | Active-low is driven **open-drain**: low = on, released = off (the module's pull-up). That works whether the module runs at 3.3 V or 5 V, and the relay is off while the GPIO floats at boot. An active-high module uses push-pull. |
 | Switch "on" throw | 5 | Internal pull-up; switch common to GND |
 | Switch "off" throw | 6 | Internal pull-up; centre position (neither throw) = **auto** |
-| RGB status LED | 48 | The DevKitC's onboard WS2812. Kconfig, because rev 1.1 boards use 38 |
+| RGB status LED | 48 | The DevKitC's onboard WS2812; rev 1.1 boards use 38 (board `devkitc-v1.1`) |
 
 Status LED colours:
 - green: auto, idle

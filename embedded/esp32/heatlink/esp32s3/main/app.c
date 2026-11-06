@@ -66,6 +66,7 @@ static hl_output current;
 static bool time_valid;
 static bool healthy;
 static hl_reporter reporter;  // when to publish /status (report.h)
+static const hl_board *board;  // NULL: provisioned as a board this image doesn't know
 
 static int64_t now_ms(void)
 {
@@ -152,6 +153,7 @@ static bool publish_status(hl_reason reason)
         .uptime_s = (uint32_t)(now / 1000),
         .reason = reason,
         .version = esp_app_get_description()->version,
+        .board = board != NULL ? board->name : NULL,
     };
     char text[STATUS_MAX];
     if (hl_status_json(text, sizeof(text), &v) < 0)
@@ -268,6 +270,8 @@ static bool step(void)
     if (time_valid)
         in.local = hl_local_from_epoch((int64_t)wall);
     hl_output out = hl_decide(&in);
+    if (board == NULL)
+        out.relay = false;  // no relay to drive: never report one as on
 
     bool changed = out.mode != current.mode || out.relay != current.relay;
     if (out.relay != current.relay)
@@ -313,9 +317,10 @@ static void app_task(void *arg)
     }
 }
 
-void app_start(void)
+void app_start(const hl_board *b)
 {
-    io_init();
+    board = b;
+    io_init(board);
 
     hl_report_init(&reporter);
     hl_schedule_init(&schedule);
