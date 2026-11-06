@@ -3,7 +3,8 @@
 #
 #   embedded/esp32/heatlink/esp32s3/scripts/flash-manual.sh /dev/cu.usbserial-XXXX [thing]
 #
-# Use the DevKitC-1's UART port (the one marked UART, not USB). If auto-reset doesn't work (e.g. a
+# Use the DevKitC-1's UART port (the one marked UART, not USB); the PCB (pcb-v1) has only native USB,
+# /dev/cu.usbmodem*. If auto-reset doesn't work (e.g. a
 # CH343 on macOS), put the board in download mode first: hold BOOT, tap RST, release BOOT.
 # Afterwards a watchdog reset starts the new firmware, so no RST tap is needed.
 #

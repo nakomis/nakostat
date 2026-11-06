@@ -56,6 +56,9 @@ void app_main(void)
         ESP_LOGE(TAG, "provisioned as board \"%s\", which this image doesn't know", name);
         roll_back_if_on_probation();
     }
+    else
+        ESP_LOGI(TAG, "board %s: relay GPIO %d (%s), switch %d/%d, LED %d", board->name, board->relay,
+                 board->relay_active_low ? "active-low" : "active-high", board->sw_on, board->sw_off, board->led);
 
     ota_boot();
     app_start(board);

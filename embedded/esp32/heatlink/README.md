@@ -216,7 +216,7 @@ The app is about 1.0 MB in a 1.875 MB slot (about 53%).
    AWS_PROFILE=nakom.is-sandbox NPM_ENVIRONMENT=sandbox embedded/esp32/heatlink/scripts/provision-device.sh --board devkitc
    ```
    `--board` is `devkitc`, `devkitc-v1.1` or `pcb-v1` (see [Boards](#boards)).
-3. Flash over the DevKitC's **UART** port. The app is signed first (`esp32s3/scripts/sign.sh`, the
+3. Flash over the DevKitC's **UART** port (the PCB has only native USB: its `/dev/cu.usbmodem*`). The app is signed first (`esp32s3/scripts/sign.sh`, the
    `NPM_ENVIRONMENT` key, default sandbox). This writes the bootloader, partition table, OTA data,
    the app and `prov`, but never `nvs`, so the stored schedule survives:
    ```bash
@@ -230,6 +230,10 @@ After that, Fleet updates it over the air. CI signs and publishes each build wit
 ([Signed updates](#signed-updates-stat-81)).
 
 ## Bench test (no mains)
+
+`bench/hl-bench check --board <board>` runs steps 2 to 5 for you: it asks you to move the switch,
+sends the demands and checks each `/status` ([`bench/README.md`](bench/README.md)). For the PCB,
+start with [`docs/heatlink-pcb-bringup.md`](../../../docs/heatlink-pcb-bringup.md).
 
 The breadboard **never carries mains**. On the bench the relay switches an LED as a dummy load.
 
