@@ -105,7 +105,11 @@ describe('IotStack — sandbox', () => {
       template.hasResourceProperties('AWS::IoT::Thing', {
         ThingName: 'nakostat-heatlink',
         AttributePayload: {
-          Attributes: { project: 'nakostat', deviceType: 'heatlink', capabilities: 'ota' },
+          Attributes: {
+            project: 'nakostat',
+            deviceType: 'heatlink',
+            capabilities: 'ota,ota-signed',
+          },
         },
       });
     });

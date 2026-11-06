@@ -32,13 +32,13 @@ export class IotStack extends cdk.Stack {
     });
 
     // The heatlink (ESP32-S3 boiler switch) is a Fleet device. Its attributes tell Fleet which
-    // project it belongs to and what it can do: plain, unsigned OTA for the prototype. Its
+    // project it belongs to and what it can do: OTA with signed images only (STAT-81). Its
     // certificate is made and attached by the firmware's provision-device.sh, never here: the
     // private key must not pass through CloudFormation.
     const heatlinkThing = new iot.CfnThing(this, 'HeatlinkThing', {
       thingName: HEATLINK_THING_NAME,
       attributePayload: {
-        attributes: { project: 'nakostat', deviceType: 'heatlink', capabilities: 'ota' },
+        attributes: { project: 'nakostat', deviceType: 'heatlink', capabilities: 'ota,ota-signed' },
       },
     });
 

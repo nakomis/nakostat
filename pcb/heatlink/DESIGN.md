@@ -200,4 +200,5 @@ An independent review before ordering found no blockers and nothing that needs a
 
 - **No mains power supply.** Power comes over USB.
 - **No current sensing and no second relay.**
-- **No secure element.** Signed OTA uses the S3's own secure boot (Phase 2 firmware).
+- **No secure element.** Signed OTA uses ESP-IDF's secure boot v2 signature scheme, checked by the app on update, without
+  burning secure boot eFuses (STAT-81).

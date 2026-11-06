@@ -1,1 +1,3 @@
 pytest==8.4.2
+# espsecure.py, for tests/test_ci_publish.py: ESP-IDF v5.5's esptool
+esptool==4.12.0

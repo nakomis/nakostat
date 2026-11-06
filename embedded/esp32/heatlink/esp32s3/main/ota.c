@@ -1,4 +1,4 @@
-// OTA through Fleet, unsigned. See ota.h.
+// OTA through Fleet, signed (STAT-81). See ota.h.
 #include "ota.h"
 #include "net.h"
 
@@ -376,7 +376,8 @@ static const char *download(const esp_partition_t *slot, char *why, size_t why_l
         err_text = "sha256 mismatch";
         goto out;
     }
-    // Checks the image's own integrity (header, checksum). Images are unsigned.
+    // Checks the image's own integrity (header, checksum) and its signature, against the key that
+    // signed the running image (sdkconfig.defaults): an image signed by any other key fails here.
     err = esp_ota_end(ota);
     ota = 0;
     if (err != ESP_OK)

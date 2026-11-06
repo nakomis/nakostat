@@ -714,7 +714,9 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::975050268859:role/nakomis-nakostat-github-ci-sandbox
           aws-region: eu-west-2
-      - name: Publish to the sandbox firmware bucket
+      # espsecure.py signs the image (STAT-81): ESP-IDF v5.5's esptool.
+      - run: pip install --quiet "esptool==4.12.0"
+      - name: Sign with the sandbox key and publish to the sandbox firmware bucket
         run: embedded/esp32/heatlink/esp32s3/scripts/ci-publish.sh sandbox publish/nakostat.bin "${{ needs.firmware-build.outputs.version }}"
 
   firmware-publish-prod:
@@ -738,7 +740,9 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::637423226886:role/nakomis-nakostat-github-ci-prod
           aws-region: eu-west-2
-      - name: Publish to the prod firmware bucket
+      # espsecure.py signs the image (STAT-81): ESP-IDF v5.5's esptool.
+      - run: pip install --quiet "esptool==4.12.0"
+      - name: Sign with the prod key and publish to the prod firmware bucket
         run: embedded/esp32/heatlink/esp32s3/scripts/ci-publish.sh prod publish/nakostat.bin "${{ needs.firmware-build.outputs.version }}"
 
   # ── Prototype case (OpenSCAD): manifold solids and fit checks ─────────────────

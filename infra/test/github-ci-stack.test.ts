@@ -225,4 +225,50 @@ describe('GithubCiStack', () => {
       });
     });
   });
+
+  describe('firmware signing key (STAT-81)', () => {
+    test.each([
+      'sandbox',
+      'prod',
+    ] as const)('%s reads only its own key, decrypting through SSM', (env) => {
+      makeStack(env).hasResourceProperties('AWS::IAM::Role', {
+        Policies: Match.arrayWith([
+          Match.objectLike({
+            PolicyName: 'OtaSigning',
+            PolicyDocument: {
+              Statement: [
+                Match.objectLike({
+                  Action: 'ssm:GetParameter',
+                  Resource: `arn:aws:ssm:eu-west-2:123456789012:parameter/nakostat/${env}/ota/signing-key`,
+                }),
+                Match.objectLike({
+                  Action: 'kms:Decrypt',
+                  Condition: { StringEquals: { 'kms:ViaService': 'ssm.eu-west-2.amazonaws.com' } },
+                }),
+              ],
+            },
+          }),
+        ]),
+      });
+    });
+
+    test('prod trusts only the production environment, so no branch can read its key', () => {
+      makeStack('prod').hasResourceProperties('AWS::IAM::Role', {
+        AssumeRolePolicyDocument: {
+          Statement: Match.arrayWith([
+            Match.objectLike({
+              Condition: Match.objectLike({
+                StringLike: {
+                  'token.actions.githubusercontent.com:sub': [
+                    'repo:nakomis@1488244/nakostat@1220064545:environment:production',
+                    'repo:nakomis/nakostat:environment:production',
+                  ],
+                },
+              }),
+            }),
+          ]),
+        },
+      });
+    });
+  });
 });
