@@ -52,7 +52,9 @@ add a board with `relay_active_low = false` to `embedded/esp32/heatlink/port/boa
    opto partly lit, so the relay chatters or stays held. If it doesn't drop out cleanly, power the
    module's logic (VCC, or JD-VCC's logic side) from **3.3 V**, or drive IN through an NPN transistor
    or level shifter. Don't start the live trial until this passes.
-4. With the switch in each position, check the LED colour and the relay:
+4. With the switch in each position, check the LED colour and the relay. `hl-bench check --board devkitc`
+   runs the first rows of this table for you and checks each `/status`
+   ([`bench/README.md`](../embedded/esp32/heatlink/bench/README.md)):
 
 | Check | Expect |
 |---|---|
@@ -79,7 +81,10 @@ Only after the bench test passes.
    L, N or FROST STAT.
 5. Close the case, restore power at the spur, and repeat the bench-test table with the boiler
    instead of the LED. "Relay on" should now light the boiler's heating demand and fire it.
-6. Run the trial (suggested: a week). Watch the dashboard's boiler timeline against the room temperature.
+6. Run the trial (suggested: a week). Watch the dashboard's boiler timeline against the room temperature,
+   and leave `hl-bench trial --env prod --notify --log trial.jsonl` running on the Mac: it raises an alert
+   if the heatlink goes quiet, falls back, reboots, or its relay disagrees with the daemon's demand
+   ([`bench/README.md`](../embedded/esp32/heatlink/bench/README.md)).
 
 ## Rolling back
 

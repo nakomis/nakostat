@@ -98,5 +98,8 @@ Full details: `embedded/esp32/heatlink/README.md`.
 ## Hardware and wiring
 
 - Prototype wiring, bench test and live-trial procedure: `docs/heatlink-prototype-wiring.md`.
+- PCB bring-up (unpowered checks, first power, flash, bench check): `docs/heatlink-pcb-bringup.md`.
+- `embedded/esp32/heatlink/bench/hl-bench`: watch the heatlink's MQTT, run the guided bench check, and
+  watch the live trial for alerts (`bench/README.md`).
 - Prototype case: `3d/heatlink-prototype/` (OpenSCAD; `make.sh`).
 - The boiler (Ideal Logic+ Combi) switches its call for heat at **230 V**; see `bom.md` §2 and §4.

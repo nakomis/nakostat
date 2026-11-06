@@ -1,0 +1,3 @@
+# hl-bench's MQTT link (hlbench/link.py). The tests don't need these.
+awsiotsdk==1.24.0
+boto3==1.43.125
